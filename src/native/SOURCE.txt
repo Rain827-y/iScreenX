@@ -1,0 +1,2 @@
+PlayFair sources and license: https://github.com/FDH2/UxPlay/tree/48f5ce47c9ef694afccfac907c9e8828329657fe/lib/playfair
+fairplay.c includes the v3 reply table from lib/fairplay_playfair.c at that revision.
