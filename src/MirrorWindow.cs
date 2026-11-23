@@ -102,6 +102,12 @@ internal sealed class MirrorWindow : Form
                     return;
                 }
                 switch (message) {
+                    case "toggle-pin":
+                        TopMost=!TopMost;
+                        goto case "pin-state";
+                    case "pin-state":
+                        core.PostWebMessageAsString(TopMost?"pinned":"unpinned");
+                        break;
                     case "minimize": WindowState = FormWindowState.Minimized; break;
                     case "close": Close(); break;
                     case "theme-light": BackColor = Color.FromArgb(248,248,250); break;
