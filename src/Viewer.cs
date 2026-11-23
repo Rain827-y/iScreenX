@@ -16,10 +16,16 @@ internal sealed class Viewer : IDisposable
     readonly MirrorWindow window;
     readonly Action<string> note;
     TcpClient player;
+    byte[] videoConfig;
+    bool needsConfig, connectedOnce;
     string session = "", device = "";
     volatile bool stopped;
     internal volatile int AudioVolume=75;
-    internal volatile int PlayoutDelay=145;
+    volatile int audioDelay=75, lastAudioTick;
+    internal void AudioUpdated(int delay){
+        audioDelay=delay;
+        lastAudioTick=Environment.TickCount;
+    }
 
     internal Viewer(string name, Action<string> report, Action close)
     {
@@ -39,6 +45,7 @@ internal sealed class Viewer : IDisposable
         lock (gate) {
             if (stopped || session.Length != 0) throw new IOException("已有设备正在投屏");
             session = Guid.NewGuid().ToString("N");
+            videoConfig=null; connectedOnce=false;
             device = name.Replace('\r',' ').Replace('\n',' ');
             return session;
         }
@@ -47,7 +54,7 @@ internal sealed class Viewer : IDisposable
     {
         lock (gate) {
             if (session != id) return;
-            session = ""; device = ""; PlayoutDelay=145;
+            session = ""; device = ""; audioDelay=75;
             if (player != null) player.Close();
             player = null; Monitor.PulseAll(gate);
         }
@@ -84,17 +91,22 @@ internal sealed class Viewer : IDisposable
                 byte[] data = Encoding.UTF8.GetBytes(state); s.Write(data,0,data.Length);
             } else if (path.StartsWith(route + "/video/",StringComparison.Ordinal)) {
                 lock (gate) {
-                    if (stopped || session.Length == 0 || path != route + "/video/" + session || player != null) return;
-                    Header(s,"application/octet-stream"); player = c; keep = true; Monitor.PulseAll(gate);
+                    if (stopped || session.Length == 0 || path != route + "/video/" + session) return;
+                    Header(s,"application/octet-stream");
+                    if(player!=null)player.Close();
+                    player=c;needsConfig=true;keep=true;Monitor.PulseAll(gate);
+                    if(connectedOnce)note("本地显示通道已重新连接");
+                    connectedOnce=true;
                 }
             } else if (path.StartsWith(route+"/vstats/",StringComparison.Ordinal)) {
-                string[] parts=path.Split('/');int decoded,displayed,queue;
-                if(parts.Length==6 && int.TryParse(parts[3],out decoded) && int.TryParse(parts[4],out displayed) && int.TryParse(parts[5],out queue))
-                    note("显示统计：解码 "+decoded+"，显示 "+displayed+"，最大解码队列 "+queue);
+                string[] parts=path.Split('/');int decoded,displayed,queue,median,p95,source;
+                if(parts.Length==9 && int.TryParse(parts[3],out decoded) && int.TryParse(parts[4],out displayed) && int.TryParse(parts[5],out queue) && int.TryParse(parts[6],out median) && int.TryParse(parts[7],out p95) && int.TryParse(parts[8],out source))
+                    note("显示统计：解码 "+decoded+"，显示 "+displayed+"，最大解码队列 "+queue+"，收包到绘制 P50/P95 "+median+"/"+p95+"ms，发送端时间戳到收包 P50 "+(source<0?"未知":source+"ms"));
                 Header(s,"text/plain");
             } else if (path == route + "/delay") {
                 Header(s,"text/plain");
-                byte[] text=Encoding.ASCII.GetBytes(PlayoutDelay.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                int delay=unchecked((uint)(Environment.TickCount-lastAudioTick))<650?audioDelay:75;
+                byte[] text=Encoding.ASCII.GetBytes(delay.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 s.Write(text,0,text.Length);
             } else if (path == route + "/first-frame") {
                 note("已显示首帧"); Header(s,"text/plain");
@@ -108,17 +120,38 @@ internal sealed class Viewer : IDisposable
             "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n");
         s.Write(h,0,h.Length);
     }
-    internal void Send(string id,byte type,byte[] frame,ulong stamp)
+    internal void Send(string id,byte type,byte[] frame,ulong stamp,double arrival,double source)
     {
         TcpClient target;
+        byte[] replay=null;
         lock (gate) {
-            if (!stopped && session == id && player == null) Monitor.Wait(gate,25000);
-            if (stopped || session != id || player == null) throw new IOException("显示窗口未连接");
+            if(session!=id || stopped)return;
+            if(type==1)videoConfig=frame;
+            if(!connectedOnce && player==null && type==1)Monitor.Wait(gate,800);
+            if(session!=id || stopped || player==null)return;
             target = player;
+            if(needsConfig && type!=1)replay=videoConfig;
+            needsConfig=false;
         }
-        byte[] h = new byte[13]; h[0] = type; BitConverter.GetBytes(frame.Length).CopyTo(h,1);
+        try {
+            var stream=target.GetStream();
+            if(replay!=null)WriteFrame(stream,1,replay,stamp,arrival,source);
+            WriteFrame(stream,type,frame,stamp,arrival,source);
+        } catch(IOException e){PlayerDisconnected(target,e);}
+        catch(InvalidOperationException e){PlayerDisconnected(target,e);}
+    }
+    void PlayerDisconnected(TcpClient target,Exception error){
+        lock(gate){
+            if(player!=target)return;
+            player=null;target.Close();
+            note("本地显示连接中断，继续接收手机视频 · "+error.Message);
+        }
+    }
+    static void WriteFrame(Stream s,byte type,byte[] frame,ulong stamp,double arrival,double source){
+        byte[] h = new byte[29]; h[0] = type; BitConverter.GetBytes(frame.Length).CopyTo(h,1);
         BitConverter.GetBytes((stamp>>32)*1000000.0+(uint)stamp*(1000000.0/4294967296.0)).CopyTo(h,5);
-        var s = target.GetStream(); s.Write(h,0,h.Length); s.Write(frame,0,frame.Length);
+        BitConverter.GetBytes(arrival).CopyTo(h,13);BitConverter.GetBytes(source).CopyTo(h,21);
+        s.Write(h,0,h.Length); s.Write(frame,0,frame.Length);
     }
     public void Dispose()
     {

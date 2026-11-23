@@ -44,15 +44,15 @@ internal sealed class Mirror : IDisposable
     T Track<T>(T resource) where T:IDisposable{
         lock(resources){if(closed){resource.Dispose();throw new ObjectDisposedException("Mirror");}resources.Add(resource);return resource;}
     }
-    void Run(Action task){
+    void Run(string channel,Action task){
         ThreadPool.QueueUserWorkItem(delegate{
-            try{task();}catch(Exception e){if(!closed)note("串流 · "+e.Message);}
+            try{task();}catch(Exception e){if(!closed)note(channel+" · "+e.Message);}
         });
     }
-    int Tcp(Action<TcpClient> run){
+    int Tcp(string channel,Action<TcpClient> run){
         var socket=Track(new Socket(local.AddressFamily,SocketType.Stream,ProtocolType.Tcp));
         socket.Bind(new IPEndPoint(local,0));socket.Listen(2);
-        Run(delegate {
+        Run(channel,delegate {
             while(!closed) {
                 var accepted=socket.Accept();
                 if(!peer.Equals(((IPEndPoint)accepted.RemoteEndPoint).Address)){accepted.Close();continue;}
@@ -66,16 +66,41 @@ internal sealed class Mirror : IDisposable
     }
     UdpClient Udp(){return Track(new UdpClient(new IPEndPoint(local,0)));}
     static int Port(UdpClient u){return ((IPEndPoint)u.Client.LocalEndPoint).Port;}
+    double phoneToPcMs=double.NaN;
+    static double UnixMs(){return (DateTime.UtcNow.Ticks-621355968000000000L)/10000.0;}
+    static ulong NtpNow(){
+        long ticks=DateTime.UtcNow.Ticks-new DateTime(1900,1,1).Ticks;
+        return ((ulong)(ticks/10000000)<<32)+((ulong)(ticks%10000000)<<32)/10000000;
+    }
+    static ulong ReadNtp(byte[] b,int pos){
+        ulong value=0;for(int i=0;i<8;i++)value=(value<<8)|b[pos+i];return value;
+    }
+    static void WriteNtp(byte[] b,int pos,ulong value){
+        for(int i=7;i>=0;i--){b[pos+i]=(byte)value;value>>=8;}
+    }
     void TimeSync(UdpClient u,int port){
-        u.Connect(peer,port);
-        Run(delegate {
+        u.Connect(peer,port);u.Client.ReceiveTimeout=500;
+        Run("时钟同步",delegate {
             byte[] req=new byte[32];req[0]=0x80;req[1]=0xd2;req[3]=7;
+            var sampleAge=System.Diagnostics.Stopwatch.StartNew();double bestRtt=double.MaxValue;
             while(!closed){
-                long ticks=DateTime.UtcNow.Ticks-new DateTime(1900,1,1).Ticks;
-                ulong t=((ulong)(ticks/10000000)<<32)+((ulong)(ticks%10000000)<<32)/10000000;
-                for(int i=0;i<8;i++)req[31-i]=(byte)(t>>(8*i));
-                u.Send(req,req.Length);Thread.Sleep(1000);
-                while(!closed && u.Available>0){IPEndPoint from=null;u.Receive(ref from);}
+                ulong sent=NtpNow();WriteNtp(req,24,sent);
+                u.Send(req,req.Length);
+                try{
+                    IPEndPoint from=null;byte[] res=u.Receive(ref from);ulong received=NtpNow();
+                    if(res.Length>=32 && (res[1]&127)==0x53 && ReadNtp(res,8)==sent){
+                        ulong t2=ReadNtp(res,16),t3=ReadNtp(res,24);
+                        double scale=1000.0/4294967296.0;
+                        double rtt=((long)(received-sent)-(long)(t3-t2))*scale;
+                        if(sampleAge.ElapsedMilliseconds>30000){bestRtt=double.MaxValue;sampleAge.Restart();}
+                        if(rtt>=0 && rtt<Math.Min(bestRtt,100)){
+                            bestRtt=rtt;
+                            Interlocked.Exchange(ref phoneToPcMs,0.5*((long)(sent-t2)*scale+(long)(received-t3)*scale));
+                        }
+                        WriteNtp(req,8,t3);WriteNtp(req,16,received);
+                    }
+                }catch(SocketException e){if(e.SocketErrorCode!=SocketError.TimedOut)throw;}
+                Thread.Sleep(1000);
             }
         });
     }
@@ -91,7 +116,7 @@ internal sealed class Mirror : IDisposable
             sessionKey=secret==null?key:Hash(key,secret);
             var timing=Udp();reply["timingPort"]=Port(timing);
             if(req.ContainsKey("timingPort"))TimeSync(timing,Convert.ToInt32(req["timingPort"]));
-            reply["eventPort"]=Tcp(delegate(TcpClient c){var stream=c.GetStream();while(Receiver.ReadHeader(stream)!=null){
+            reply["eventPort"]=Tcp("事件通道",delegate(TcpClient c){var stream=c.GetStream();while(Receiver.ReadHeader(stream)!=null){
                 byte[] ok=Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");stream.Write(ok,0,ok.Length);
             }});
         }
@@ -105,7 +130,7 @@ internal sealed class Mirror : IDisposable
                     if(sessionKey==null)throw new InvalidDataException("缺少视频密钥");
                     byte[] key=Hash(Encoding.ASCII.GetBytes("AirPlayStreamKey"+id),sessionKey);
                     byte[] iv=Hash(Encoding.ASCII.GetBytes("AirPlayStreamIV"+id),sessionKey);
-                    r["dataPort"]=Tcp(delegate(TcpClient c){Video(c,key,iv);});
+                    r["dataPort"]=Tcp("手机视频通道",delegate(TcpClient c){Video(c,key,iv);});
                 }else if(type==96){
                     int codec=stream.ContainsKey("ct")?Convert.ToInt32(stream["ct"]):1;
                     int rate=stream.ContainsKey("sr")?Convert.ToInt32(stream["sr"]):44100;
@@ -114,7 +139,7 @@ internal sealed class Mirror : IDisposable
                     StopAudio();
                     var data=audioData=Udp();data.Client.ReceiveBufferSize=256*1024;audioControl=Udp();
                     r["dataPort"]=Port(data);r["controlPort"]=Port(audioControl);
-                    Run(delegate { ReceiveAudio(data,codec,rate); });
+                    Run("手机音频通道",delegate { ReceiveAudio(data,codec,rate); });
                 }else throw new InvalidDataException("未知串流类型 "+type);
                 replies.Add(r);
             }
@@ -143,7 +168,7 @@ internal sealed class Mirror : IDisposable
         if(rate!=44100)throw new InvalidDataException("不支持的采样率 "+rate);
         using(var aes=Aes.Create())
         using(var decoder=codec==1?null:new AacDecoder(codec))
-        using(var output=new PcmOutput(rate,viewer.PlayoutDelay)){
+        using(var output=new PcmOutput(rate)){
             aes.Mode=CipherMode.CBC;aes.Padding=PaddingMode.None;
             aes.Key=sessionKey;aes.IV=audioIv;
             int epoch=Volatile.Read(ref audioEpoch);bool reported=false;int failures=0;
@@ -158,7 +183,7 @@ internal sealed class Mirror : IDisposable
                 if(epoch!=nextEpoch){queue.Reset();epoch=nextEpoch;output.Flush();}
                 queue.Add(packet);
                 if(stats.ElapsedMilliseconds>=15000){
-                    note("音频统计：乱序恢复 "+queue.Recovered+"，缺包 "+queue.Missing+"，播放欠载 "+output.Underruns+"，输出阻塞 "+output.Stalls);
+                    note("音频统计：乱序恢复 "+queue.Recovered+"，缺包 "+queue.Missing+"，播放欠载 "+output.Underruns+"，输出阻塞 "+output.Stalls+"，预缓冲 "+output.DelayMs+"ms");
                     stats.Restart();
                 }
                 while(queue.Take(out packet)){
@@ -186,7 +211,7 @@ internal sealed class Mirror : IDisposable
                     }
                     lastSize=bytes;
                     bool submitted=output.Write(pcm,bytes,viewer.AudioVolume);
-                    viewer.PlayoutDelay=output.DelayMs;
+                    viewer.AudioUpdated(output.DelayMs);
                     if(submitted && !reported){
                         for(int i=0;i<bytes;i+=2){
                             if(Math.Abs((int)(short)(pcm[i]|pcm[i+1]<<8))>32){
@@ -213,13 +238,23 @@ internal sealed class Mirror : IDisposable
                     int n=BitConverter.ToInt32(h,0);
                     if(n<0 || n>16*1024*1024)throw new InvalidDataException("视频包长度异常");
                     byte[] b=new byte[n];if(!Read(s,b))break;
+                    double arrival=UnixMs();
                     long now=stats.ElapsedMilliseconds;
                     if(h[4]==0){
                         cipher.Transform(b);frames++;
                         if(previous!=0)worstGap=Math.Max(worstGap,now-previous);
                         previous=now;
                     }else if(h[4]!=1)continue;
-                    if(n>0)viewer.Send(id,h[4],b,BitConverter.ToUInt64(h,8));
+                    if(n>0){
+                        ulong stamp=BitConverter.ToUInt64(h,8);
+                        double source=stamp*(1000.0/4294967296.0)+Volatile.Read(ref phoneToPcMs);
+                        const double eraMs=4294967296.0*1000;
+                        source+=Math.Round((arrival-source)/eraMs)*eraMs;
+                        // iOS video stamps are boot-relative, timing replies include the NTP epoch.
+                        // Reject incomparable clocks rather than using a fabricated capture time.
+                        if(double.IsNaN(source) || Math.Abs(arrival-source)>30000)source=double.NaN;
+                        viewer.Send(id,h[4],b,stamp,arrival,source);
+                    }
                     slowestSend=Math.Max(slowestSend,stats.ElapsedMilliseconds-now);
                     if(now>=15000){
                         note("视频统计：收到 "+frames+" 帧 / "+now+"ms，最大帧间隔 "+worstGap+"ms，最长本地发送 "+slowestSend+"ms");
