@@ -14,7 +14,7 @@ internal sealed class MirrorWindow : Form
     readonly Uri page;
     bool fullscreen;
     double aspect=16.0/9;
-    int toolbarHeight=34;
+    int toolbarHeight=30;
     readonly Timer resizeDrag=new Timer{Interval=15};
     Point dragStart;
     Rectangle dragBounds,dragArea;

@@ -1,7 +1,7 @@
 ﻿<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>iScreenX · 屏幕镜像</title>
 <style>
 *{box-sizing:border-box}[hidden]{display:none!important}
-:root{--toolbar-height:34px;color-scheme:light;--paper:#f8f9fb;--bar:#fff;--ink:#22252a;--muted:#606670;--line:#10182116;--well:#eceef2;--blue:#2968bb;--panel:#fffffff5;--shadow:#17213820}
+:root{--toolbar-height:30px;color-scheme:light;--paper:#f8f9fb;--bar:#fff;--ink:#22252a;--muted:#606670;--line:#10182116;--well:#eceef2;--blue:#2968bb;--panel:#fffffff5;--shadow:#17213820}
 :root[data-theme=dark]{color-scheme:dark;--paper:#191b20;--bar:#222429;--ink:#f4f5f7;--muted:#adb1b9;--line:#ffffff20;--well:#32353c;--blue:#95bbff;--panel:#25272df7;--shadow:#0006}
 html,body{height:100%;margin:0;overflow:hidden}body{display:grid;grid-template-rows:var(--toolbar-height) minmax(0,1fr);font:14px/1.45 Inter,"Segoe UI","Microsoft YaHei UI",sans-serif;color:var(--ink);background:var(--paper)}
 button{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
@@ -57,7 +57,7 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <div class="row"><label for="show-info">显示帧率和分辨率</label><button class="switch" role="switch" aria-checked="true" id="show-info"></button></div>
 <div class="row">外观<button id="theme"><svg><use href="#moon"/></svg><span id="theme-label"></span></button></div></dialog>
 <dialog id="record-sheet" aria-labelledby="rec-title"><div class="sheet-head"><h2 id="rec-title">屏幕录制</h2><small>交互预览</small><button class="dismiss" aria-label="关闭录制面板">×</button></div><p>仅录制手机画面和声音。<br>跟随投屏设置 · <span id="format">中等 · 30 fps</span></p><button class="record" aria-pressed="false" id="record">预览录制</button></dialog>
-<dialog id="guide" aria-labelledby="guide-title"><div class="sheet-head"><h2 id="guide-title">连接指南</h2><button class="dismiss" aria-label="关闭连接指南">×</button></div><ol class="guide"><li>将手机与电脑连到同一局域网。</li><li>打开控制中心，轻点「屏幕镜像」。在 iOS 10 上，轻点「AirPlay 镜像」。</li><li>选择等待画面中显示的接收端名称。</li></ol></dialog>
+<dialog id="guide" aria-labelledby="guide-title"><div class="sheet-head"><h2 id="guide-title">连接指南</h2><button class="dismiss" aria-label="关闭连接指南">×</button></div><ol class="guide"><li>将手机与电脑连到同一局域网。</li><li>打开控制中心，点击「屏幕镜像」。</li><li>选择“iScreenX-XXX”的设备。</li></ol></dialog>
 <span class="resize-handle" data-edge="1" aria-hidden="true"></span><span class="resize-handle" data-edge="2" aria-hidden="true"></span><span class="resize-handle" data-edge="3" aria-hidden="true"></span><span class="resize-handle" data-edge="6" aria-hidden="true"></span>
 <span class="resize-handle" data-edge="4" aria-hidden="true"></span><span class="resize-handle" data-edge="5" aria-hidden="true"></span>
 <span class="resize-handle" data-edge="7" aria-hidden="true"></span><span class="resize-handle" data-edge="8" aria-hidden="true"></span>
