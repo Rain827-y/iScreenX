@@ -125,7 +125,7 @@ class Receiver : Form
                 if (clients.WaitOne(0)) ThreadPool.QueueUserWorkItem(delegate {
                     using (client) {
                         try { Serve(client); }
-                        catch (Exception e) { if (!closing) Note("???? ? "+e.Message); }
+                        catch (Exception e) { if (!closing) Note("控制连接结束："+e.Message); }
                         finally { clients.Release(); }
                     }
                 });
@@ -182,6 +182,10 @@ class Receiver : Form
                 body = Plist.Write(new Dictionary<string,object>{
                     {"deviceID",device},{"name",serviceName},{"model",Model},{"sourceVersion",Version},
                     {"features",0x5A7FFFF7},{"statusFlags",4},{"protocolVersion","1.0"},{"pk",publicKey},{"vv",2},
+                    {"audioFormats",new object[]{
+                        new Dictionary<string,object>{{"type",100},{"audioInputFormats",0},{"audioOutputFormats",(1<<11)|(1<<22)|(1<<24)}},
+                        new Dictionary<string,object>{{"type",101},{"audioInputFormats",0},{"audioOutputFormats",(1<<11)|(1<<22)|(1<<24)}}
+                    }},
                     {"displays",new object[]{new Dictionary<string,object>{
                         {"uuid","4ed36a40-3af2-4be2-91b9-93e3f35f22c3"},{"width",1280},{"height",720},
                         {"widthPixels",1280},{"heightPixels",720},{"rotation",false},{"refreshRate",1.0/30},
@@ -206,15 +210,24 @@ class Receiver : Form
                 extra = "Content-Type: application/octet-stream\r\n";
             } else if (request[0] == "SETUP") {
                 body = mirror.Setup(payload,pair.VerifiedSecret);
+                // An active mirror can carry media without issuing RTSP commands.
+                // Probe the TCP peer instead of expiring the session on RTSP silence.
+                byte[] keepAlive=new byte[12];
+                BitConverter.GetBytes(1).CopyTo(keepAlive,0);
+                BitConverter.GetBytes(30000).CopyTo(keepAlive,4);
+                BitConverter.GetBytes(3000).CopyTo(keepAlive,8);
+                client.Client.IOControl(IOControlCode.KeepAliveValues,keepAlive,null);
+                client.ReceiveTimeout=0;
                 extra = "Content-Type: application/x-apple-binary-plist\r\nSession: 1\r\n";
             } else if (request[0] == "OPTIONS") extra = "Public: SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER\r\n";
             else if (request[0] == "RECORD") extra = "Audio-Latency: 11025\r\n";
             else if (request[0] == "GET_PARAMETER" && Encoding.ASCII.GetString(payload).Contains("volume")) {
                 body=Encoding.ASCII.GetBytes("volume: 0.000000\r\n"); extra="Content-Type: text/parameters\r\n";
-            } else if (request[0]=="GET_PARAMETER" || request[0]=="SET_PARAMETER" || request[0]=="FLUSH" ||
-                       request[0]=="TEARDOWN" || (request[0]=="POST" && path=="/feedback")) {}
+            } else if(request[0]=="FLUSH") mirror.FlushAudio();
+            else if(request[0]=="TEARDOWN") mirror.Teardown(payload);
+            else if (request[0]=="GET_PARAMETER" || request[0]=="SET_PARAMETER" || (request[0]=="POST" && path=="/feedback")) {}
             else code = "501 Not Implemented";
-            if(path!="/feedback") Note(client.Client.RemoteEndPoint + "  " + request[0] + " " + path + "  " + code);
+            if(path!="/feedback" && request[0]!="SET_PARAMETER") Note(client.Client.RemoteEndPoint + "  " + request[0] + " " + path + "  " + code);
             byte[] response = Encoding.ASCII.GetBytes(proto + " " + code + "\r\n" + cseq + "Server: AirTunes/" + Version +
                 "\r\n" + extra + "Content-Length: " + body.Length + "\r\n\r\n");
             stream.Write(response, 0, response.Length);

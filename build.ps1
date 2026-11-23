@@ -1,6 +1,11 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 New-Item -ItemType Directory -Path dist,tmp -Force | Out-Null
+if (!(Test-Path 'dist/iscreenx-aac.dll') -or
+    (Get-Item 'src/native/audio-decoder.cpp').LastWriteTimeUtc -gt (Get-Item 'dist/iscreenx-aac.dll').LastWriteTimeUtc) {
+    & "$PSScriptRoot/build-audio.ps1"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 $version = '1.0.2903.40'
 $sdk = "tmp/webview2-$version"
 if (!(Test-Path "$sdk/lib/net462/Microsoft.Web.WebView2.WinForms.dll")) {

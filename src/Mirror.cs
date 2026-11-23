@@ -17,9 +17,11 @@ internal sealed class Mirror : IDisposable
     readonly IPAddress local, peer;
     readonly Action<string> note;
     readonly List<IDisposable> resources=new List<IDisposable>();
-    byte[] handshake,sessionKey;
+    byte[] handshake,sessionKey,audioIv;
     readonly Viewer viewer;
     string senderName="iOS";
+    UdpClient audioData,audioControl;
+    int audioEpoch;
     bool fpStarted;
     volatile bool closed;
     internal Mirror(TcpClient control,Action<string> report,Viewer display) {
@@ -84,6 +86,7 @@ internal sealed class Mirror : IDisposable
         if(req.ContainsKey("ekey")){
             byte[] wrapped=req["ekey"] as byte[];
             if(handshake==null || wrapped==null || wrapped.Length!=72)throw new InvalidDataException("会话密钥无效");
+            audioIv=req.ContainsKey("eiv") ? req["eiv"] as byte[] : null;
             byte[] key=new byte[16];fp_key(handshake,wrapped,key);
             sessionKey=secret==null?key:Hash(key,secret);
             var timing=Udp();reply["timingPort"]=Port(timing);
@@ -104,14 +107,96 @@ internal sealed class Mirror : IDisposable
                     byte[] iv=Hash(Encoding.ASCII.GetBytes("AirPlayStreamIV"+id),sessionKey);
                     r["dataPort"]=Tcp(delegate(TcpClient c){Video(c,key,iv);});
                 }else if(type==96){
-                    // Reserve genuine RTP ports for the phone's accompanying audio session.
-                    r["dataPort"]=Port(Udp());r["controlPort"]=Port(Udp());
+                    int codec=stream.ContainsKey("ct")?Convert.ToInt32(stream["ct"]):1;
+                    int rate=stream.ContainsKey("sr")?Convert.ToInt32(stream["sr"]):44100;
+                    ulong format=stream.ContainsKey("audioFormat")?(ulong)stream["audioFormat"]:0;
+                    note("音频协商 ct="+codec+" format="+format+" rate="+rate);
+                    StopAudio();
+                    var data=audioData=Udp();data.Client.ReceiveBufferSize=256*1024;audioControl=Udp();
+                    r["dataPort"]=Port(data);r["controlPort"]=Port(audioControl);
+                    Run(delegate { ReceiveAudio(data,codec,rate); });
                 }else throw new InvalidDataException("未知串流类型 "+type);
                 replies.Add(r);
             }
             reply["streams"]=replies.ToArray();
         }
         return Plist.Write(reply);
+    }
+    void StopAudio(){
+        lock(resources){
+            if(audioData!=null){audioData.Close();resources.Remove(audioData);audioData=null;}
+            if(audioControl!=null){audioControl.Close();resources.Remove(audioControl);audioControl=null;}
+        }
+    }
+    internal void FlushAudio(){Interlocked.Increment(ref audioEpoch);}
+    internal void Teardown(byte[] body){
+        if(body.Length==0){StopAudio();return;}
+        var request=Plist.Read(body);object streams;
+        if(!request.TryGetValue("streams",out streams)){StopAudio();return;}
+        foreach(var stream in (object[])streams){
+            if(Convert.ToInt32(((Dictionary<string,object>)stream)["type"])==96){StopAudio();break;}
+        }
+    }
+    void ReceiveAudio(UdpClient data,int codec,int rate){
+        if((codec!=1 && codec!=8 && codec!=4) || audioIv==null || audioIv.Length!=16 || sessionKey==null)
+            throw new InvalidDataException("不支持的音频会话 ct="+codec);
+        if(rate!=44100)throw new InvalidDataException("不支持的采样率 "+rate);
+        using(var aes=Aes.Create())
+        using(var decoder=codec==1?null:new AacDecoder(codec))
+        using(var output=new PcmOutput(rate,viewer.PlayoutDelay)){
+            aes.Mode=CipherMode.CBC;aes.Padding=PaddingMode.None;
+            aes.Key=sessionKey;aes.IV=audioIv;
+            int epoch=Volatile.Read(ref audioEpoch);bool reported=false;int failures=0;
+            var queue=new AudioPacketQueue();
+            var stats=System.Diagnostics.Stopwatch.StartNew();
+            int lastSize=codec==4?4096:1920;
+            byte[] silence=new byte[8192];
+            while(!closed){
+                IPEndPoint from=null;byte[] packet=data.Receive(ref from);
+                if(!peer.Equals(from.Address)||packet.Length<=12||packet[0]!=0x80)continue;
+                int nextEpoch=Volatile.Read(ref audioEpoch);
+                if(epoch!=nextEpoch){queue.Reset();epoch=nextEpoch;output.Flush();}
+                queue.Add(packet);
+                if(stats.ElapsedMilliseconds>=15000){
+                    note("音频统计：乱序恢复 "+queue.Recovered+"，缺包 "+queue.Missing+"，播放欠载 "+output.Underruns+"，输出阻塞 "+output.Stalls);
+                    stats.Restart();
+                }
+                while(queue.Take(out packet)){
+                    if(packet==null){
+                        int recovered=decoder==null?0:decoder.Conceal();
+                        if(recovered>0)output.Write(decoder.Samples,recovered,viewer.AudioVolume);
+                        else if(reported)output.Write(silence,lastSize,0);
+                        continue;
+                    }
+                    int length=packet.Length-12;
+                    if(length==4 && packet[12]==0 && packet[13]==0x68 && packet[14]==0x34 && packet[15]==0)continue;
+                    byte[] pcm=new byte[length];int encrypted=length&~15;
+                    using(var decrypt=aes.CreateDecryptor()){
+                        if(encrypted>0)decrypt.TransformBlock(packet,12,encrypted,pcm,0);
+                    }
+                    Buffer.BlockCopy(packet,12+encrypted,pcm,encrypted,length-encrypted);
+                    int bytes=pcm.Length;
+                    if(decoder!=null){
+                        bytes=decoder.Decode(pcm);
+                        if(bytes==0){
+                            if(++failures==30)note("连续 30 帧音频未能解码");
+                            continue;
+                        }
+                        failures=0;pcm=decoder.Samples;
+                    }
+                    lastSize=bytes;
+                    bool submitted=output.Write(pcm,bytes,viewer.AudioVolume);
+                    viewer.PlayoutDelay=output.DelayMs;
+                    if(submitted && !reported){
+                        for(int i=0;i<bytes;i+=2){
+                            if(Math.Abs((int)(short)(pcm[i]|pcm[i+1]<<8))>32){
+                                note("已解码非静音音频并送入 Windows 播放设备");reported=true;break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     static bool Read(Stream s,byte[] b){
         for(int p=0;p<b.Length;){int n=s.Read(b,p,b.Length-p);if(n==0)return false;p+=n;}return true;
@@ -120,33 +205,30 @@ internal sealed class Mirror : IDisposable
         note("已连接视频通道");
         string id=viewer.Begin(senderName);
         try {
-        using(var aes=Aes.Create()){
-            aes.Mode=CipherMode.ECB;aes.Padding=PaddingMode.None;aes.Key=key;
-            using(var cipher=aes.CreateEncryptor()){
-                // Encrypt batches of sequential counters; unused keystream carries across frames.
-                byte[] counters=new byte[16384],pad=new byte[counters.Length],h=new byte[128];int used=pad.Length;
-                var s=client.GetStream();
+            using(var cipher=new VideoCipher(key,counter)){
+                byte[] h=new byte[128];var s=client.GetStream();
+                var stats=System.Diagnostics.Stopwatch.StartNew();
+                int frames=0;long worstGap=0,previous=0,slowestSend=0;
                 while(!closed && Read(s,h)){
-                    int n=BitConverter.ToInt32(h,0);if(n<0||n>16*1024*1024)throw new InvalidDataException("视频包长度异常");
+                    int n=BitConverter.ToInt32(h,0);
+                    if(n<0 || n>16*1024*1024)throw new InvalidDataException("视频包长度异常");
                     byte[] b=new byte[n];if(!Read(s,b))break;
+                    long now=stats.ElapsedMilliseconds;
                     if(h[4]==0){
-                        for(int p=0;p<n;){
-                            if(used==pad.Length){
-                                for(int i=0;i<counters.Length;i+=16){
-                                    Buffer.BlockCopy(counter,0,counters,i,16);
-                                    for(int j=15;j>=0 && ++counter[j]==0;j--){}
-                                }
-                                cipher.TransformBlock(counters,0,counters.Length,pad,0);used=0;
-                            }
-                            int len=Math.Min(n-p,pad.Length-used);
-                            for(int i=0;i<len;i++)b[p+i]^=pad[used+i];p+=len;used+=len;
-                        }
+                        cipher.Transform(b);frames++;
+                        if(previous!=0)worstGap=Math.Max(worstGap,now-previous);
+                        previous=now;
                     }else if(h[4]!=1)continue;
                     if(n>0)viewer.Send(id,h[4],b,BitConverter.ToUInt64(h,8));
+                    slowestSend=Math.Max(slowestSend,stats.ElapsedMilliseconds-now);
+                    if(now>=15000){
+                        note("视频统计：收到 "+frames+" 帧 / "+now+"ms，最大帧间隔 "+worstGap+"ms，最长本地发送 "+slowestSend+"ms");
+                        stats.Restart();frames=0;previous=worstGap=slowestSend=0;
+                    }
                 }
+                note("视频数据通道已关闭");
             }
         }
-    }
         finally {viewer.End(id);}
     }
     public void Dispose(){

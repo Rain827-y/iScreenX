@@ -9,6 +9,7 @@ using Microsoft.Web.WebView2.WinForms;
 internal sealed class MirrorWindow : Form
 {
     readonly WebView2 browser = new WebView2();
+    internal event Action<int> VolumeChanged;
     readonly Uri page;
     bool fullscreen;
     Rectangle restoredBounds;
@@ -46,7 +47,13 @@ internal sealed class MirrorWindow : Form
             };
             core.WebMessageReceived += delegate(object sender, CoreWebView2WebMessageReceivedEventArgs args) {
                 if (args.Source != page.AbsoluteUri) return;
-                switch (args.TryGetWebMessageAsString()) {
+                string message=args.TryGetWebMessageAsString();
+                int volume;
+                if(message.StartsWith("volume:",StringComparison.Ordinal) && Int32.TryParse(message.Substring(7),out volume) && volume>=0 && volume<=100){
+                    if(VolumeChanged!=null)VolumeChanged(volume);
+                    return;
+                }
+                switch (message) {
                     case "minimize": WindowState = FormWindowState.Minimized; break;
                     case "close": Close(); break;
                     case "theme-light": BackColor = Color.FromArgb(248,248,250); break;

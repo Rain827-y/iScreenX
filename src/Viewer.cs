@@ -18,6 +18,8 @@ internal sealed class Viewer : IDisposable
     TcpClient player;
     string session = "", device = "";
     volatile bool stopped;
+    internal volatile int AudioVolume=75;
+    internal volatile int PlayoutDelay=145;
 
     internal Viewer(string name, Action<string> report, Action close)
     {
@@ -26,6 +28,7 @@ internal sealed class Viewer : IDisposable
         try {
             string url = "http://127.0.0.1:" + ((IPEndPoint)server.LocalEndpoint).Port + route;
             window = new MirrorWindow(new Uri(url));
+            window.VolumeChanged += delegate(int value){AudioVolume=value;};
             window.FormClosed += delegate { if (!stopped) close(); };
             window.Show();
             ThreadPool.QueueUserWorkItem(delegate { Listen(); });
@@ -44,7 +47,7 @@ internal sealed class Viewer : IDisposable
     {
         lock (gate) {
             if (session != id) return;
-            session = ""; device = "";
+            session = ""; device = ""; PlayoutDelay=145;
             if (player != null) player.Close();
             player = null; Monitor.PulseAll(gate);
         }
@@ -62,6 +65,7 @@ internal sealed class Viewer : IDisposable
     {
         bool keep = false;
         try {
+            c.NoDelay = true;
             c.ReceiveTimeout = c.SendTimeout = 5000;
             var s = c.GetStream();
             string h = Receiver.ReadHeader(s);
@@ -83,6 +87,15 @@ internal sealed class Viewer : IDisposable
                     if (stopped || session.Length == 0 || path != route + "/video/" + session || player != null) return;
                     Header(s,"application/octet-stream"); player = c; keep = true; Monitor.PulseAll(gate);
                 }
+            } else if (path.StartsWith(route+"/vstats/",StringComparison.Ordinal)) {
+                string[] parts=path.Split('/');int decoded,displayed,queue;
+                if(parts.Length==6 && int.TryParse(parts[3],out decoded) && int.TryParse(parts[4],out displayed) && int.TryParse(parts[5],out queue))
+                    note("显示统计：解码 "+decoded+"，显示 "+displayed+"，最大解码队列 "+queue);
+                Header(s,"text/plain");
+            } else if (path == route + "/delay") {
+                Header(s,"text/plain");
+                byte[] text=Encoding.ASCII.GetBytes(PlayoutDelay.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                s.Write(text,0,text.Length);
             } else if (path == route + "/first-frame") {
                 note("已显示首帧"); Header(s,"text/plain");
             }

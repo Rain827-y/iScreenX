@@ -1,2 +1,4 @@
 PlayFair sources and license: https://github.com/FDH2/UxPlay/tree/48f5ce47c9ef694afccfac907c9e8828329657fe/lib/playfair
 fairplay.c includes the v3 reply table from lib/fairplay_playfair.c at that revision.
+FDK AAC 2.0.3 decoder source: https://github.com/mstorsjo/fdk-aac/tree/716f4394641d53f0d79c9ddac3fa93b03a49f278
+The decoder DLL is built by build-audio.ps1 from the pinned source and src/native/audio-decoder.cpp. See FDK-AAC-NOTICE.txt.
