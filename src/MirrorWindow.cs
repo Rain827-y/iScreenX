@@ -15,10 +15,10 @@ internal sealed class MirrorWindow : Form
     bool fullscreen;
     double aspect=16.0/9;
     int toolbarHeight=34;
-    readonly Timer cornerDrag=new Timer{Interval=15};
+    readonly Timer resizeDrag=new Timer{Interval=15};
     Point dragStart;
     Rectangle dragBounds,dragArea;
-    int dragCorner;
+    int dragEdge;
     Rectangle restoredBounds;
     FormWindowState restoredState;
     int preferredLongEdge;
@@ -40,18 +40,19 @@ internal sealed class MirrorWindow : Form
         browser.Dock = DockStyle.Fill;
         browser.DefaultBackgroundColor = BackColor;
         Controls.Add(browser);
-        cornerDrag.Tick+=delegate{
-            if(fullscreen || (Control.MouseButtons & MouseButtons.Left)==0){cornerDrag.Stop();return;}
+        resizeDrag.Tick+=delegate{
+            if(fullscreen || (Control.MouseButtons & MouseButtons.Left)==0){resizeDrag.Stop();return;}
             Point cursor=Cursor.Position;
-            bool left=dragCorner==4 || dragCorner==7,top=dragCorner==4 || dragCorner==5;
+            bool left=dragEdge==1 || dragEdge==4 || dragEdge==7,top=dragEdge==3 || dragEdge==4 || dragEdge==5;
             double width=dragBounds.Width-Padding.Horizontal+(cursor.X-dragStart.X)*(left?-1:1);
             double height=dragBounds.Height-toolbarHeight-Padding.Vertical+(cursor.Y-dragStart.Y)*(top?-1:1);
             var room=ResizeRoom(dragArea,dragBounds,left,top);
-            var size=ProportionalSize((width*aspect+height)/(aspect+1/aspect),room);
+            double requested=dragEdge<=2?width:dragEdge==3 || dragEdge==6?height*aspect:(width*aspect+height)/(aspect+1/aspect);
+            var size=ProportionalSize(requested,room);
             Bounds=new Rectangle(left?dragBounds.Right-size.Width:dragBounds.Left,
                 top?dragBounds.Bottom-size.Height:dragBounds.Top,size.Width,size.Height);
         };
-        Disposed+=delegate{cornerDrag.Dispose();};
+        Disposed+=delegate{resizeDrag.Dispose();};
     }
 
     protected override async void OnShown(EventArgs e)
@@ -82,11 +83,11 @@ internal sealed class MirrorWindow : Form
                     }
                     return;
                 }
-                if(message.StartsWith("corner:",StringComparison.Ordinal)){
-                    int corner;
-                    if(!fullscreen && int.TryParse(message.Substring(7),out corner) && corner>=4 && corner<=8 && corner!=6){
+                if(message.StartsWith("resize:",StringComparison.Ordinal)){
+                    int edge;
+                    if(!fullscreen && int.TryParse(message.Substring(7),out edge) && edge>=1 && edge<=8){
                         dragStart=Cursor.Position;dragBounds=Bounds;dragArea=Screen.FromControl(this).WorkingArea;
-                        preferredLongEdge=0;dragCorner=corner;cornerDrag.Start();
+                        preferredLongEdge=0;dragEdge=edge;resizeDrag.Start();
                     }
                     return;
                 }
