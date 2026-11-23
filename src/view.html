@@ -35,7 +35,7 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <h1>等待屏幕镜像</h1><p>从 iPhone 控制中心选择这个接收端</p><div class="target"><svg><use href="#wireless"/></svg><span id="name">正在查找…</span></div>
 <button id="help" data-sheet="guide">连接指南 ›</button></div><canvas hidden aria-label="iPhone 实时画面"></canvas>
 <div class="stream-info" role="group" aria-label="投屏信息"><span id="frame-rate" hidden></span><span id="resolution"></span></div></main>
-<dialog id="settings" aria-labelledby="settings-title"><div class="sheet-head"><h2 id="settings-title">投屏设置</h2><small>交互预览</small><button class="dismiss" aria-label="关闭设置">×</button></div>
+<dialog id="settings" aria-label="投屏设置">
 <div class="row">画质<div class="segment" role="group" aria-label="画质" id="quality"><button aria-pressed="true">中等</button><button aria-pressed="false">高清</button></div></div>
 <div class="row section-end">帧率<div class="segment" role="group" aria-label="帧率" id="fps"><button aria-pressed="true">30 fps</button><button aria-pressed="false">60 fps</button></div></div>
 <div class="row">设备声音<button class="switch" role="switch" aria-label="设备声音" aria-checked="true" id="sound"></button></div>
@@ -60,7 +60,7 @@ for(const trigger of document.querySelectorAll('[data-sheet]')){
  trigger.setAttribute('aria-expanded','false');
  trigger.onclick=()=>{sheet.showModal();trigger.setAttribute('aria-expanded','true')};
  sheet.onclose=()=>trigger.setAttribute('aria-expanded','false');
- sheet.querySelector('.dismiss').onclick=()=>sheet.close();
+ sheet.querySelector('.dismiss')?.addEventListener('click',()=>sheet.close());
  sheet.onclick=e=>{
   const r=sheet.getBoundingClientRect();
   if(e.target===sheet && (e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom))sheet.close();
