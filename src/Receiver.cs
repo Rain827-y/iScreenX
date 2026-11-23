@@ -13,6 +13,7 @@ using System.Windows.Forms;
 
 class Receiver : Form
 {
+    Viewer viewer;
     readonly Label status = new Label { Dock = DockStyle.Top, Height = 60, Padding = new Padding(12) };
     readonly ListBox log = new ListBox { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly List<IntPtr> registrations = new List<IntPtr>();
@@ -50,18 +51,33 @@ class Receiver : Form
         publicKey = PairKeys.Public(PairKeys.Ed, identity);
         string pk = "pk=" + BitConverter.ToString(publicKey).Replace("-", "").ToLowerInvariant();
         NetworkInterface chosen = null;
-        IPAddress address;
-        // A UDP connect asks Windows for its preferred IPv4 route without sending a packet.
-        using (Socket route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)) {
-            route.Connect("224.0.0.251", 5353);
-            address = ((IPEndPoint)route.LocalEndPoint).Address;
+        IPAddress address = null;
+        int best = -1;
+        foreach (NetworkInterface net in NetworkInterface.GetAllNetworkInterfaces()) {
+            if (net.OperationalStatus != OperationalStatus.Up || !net.SupportsMulticast ||
+                net.GetPhysicalAddress().GetAddressBytes().Length != 6) continue;
+            var properties = net.GetIPProperties();
+            int score = net.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ? 2 :
+                        net.NetworkInterfaceType == NetworkInterfaceType.Ethernet ? 1 : 0;
+            foreach (var gateway in properties.GatewayAddresses) {
+                if (gateway.Address.AddressFamily == AddressFamily.InterNetwork && !gateway.Address.Equals(IPAddress.Any)) {
+                    score += 4; break;
+                }
+            }
+            if (score <= best) continue;
+            foreach (var ip in properties.UnicastAddresses) {
+                if (ip.Address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(ip.Address)) continue;
+                chosen = net; address = ip.Address; best = score; break;
+            }
         }
-        foreach (NetworkInterface net in NetworkInterface.GetAllNetworkInterfaces())
-            foreach (UnicastIPAddressInformation ip in net.GetIPProperties().UnicastAddresses)
-                if (ip.Address.Equals(address)) chosen = net;
-        if (chosen == null || chosen.GetPhysicalAddress().GetAddressBytes().Length != 6)
+        if (chosen == null)
             throw new IOException("未找到可用的局域网网卡。");
-        device = BitConverter.ToString(chosen.GetPhysicalAddress().GetAddressBytes()).Replace("-", ":");
+        // Identify this receiver independently of other AirPlay apps on the same adapter.
+        byte[] receiverId = new byte[6];
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+            Array.Copy(sha.ComputeHash(publicKey), receiverId, receiverId.Length);
+        receiverId[0] = (byte)((receiverId[0] & 0xfc) | 0x02);
+        device = BitConverter.ToString(receiverId).Replace("-", ":");
         uint index = 0; // Bonjour for Windows selects its active multicast interfaces.
         serviceName = "iScreenX-" + Environment.MachineName;
         listener = new TcpListener(address, 0);
@@ -80,11 +96,13 @@ class Receiver : Form
             "txtvers=1", "ch=2", "cn=0,1,2,3", "et=0,3,5", "md=0,1,2", "pw=false", "sr=44100", "ss=16",
             "tp=UDP", "vn=65537", "vs=" + Version, "am=" + Model, "ft=" + Features, "sf=0x4", "vv=2", pk);
         status.Text = serviceName + "    " + address + ":" + port + "\n等待连接 · 在 iPhone 控制中心打开「AirPlay 镜像」";
+        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); });
         ThreadPool.QueueUserWorkItem(delegate { Accept(listener); });
     }
     void Shutdown()
     {
         closing = true;
+        if (viewer != null) viewer.Dispose();
         if (listener != null) listener.Stop();
         if (ipv6Listener != null) ipv6Listener.Stop();
         foreach (IntPtr registration in registrations) DNSServiceRefDeallocate(registration);
@@ -134,7 +152,7 @@ class Receiver : Form
         client.ReceiveTimeout = 65000; client.SendTimeout = 8000;
         NetworkStream stream = client.GetStream();
         PairSession pair = new PairSession();
-        using (var mirror = new Mirror(client, Note))
+        using (var mirror = new Mirror(client, Note, viewer))
         try {
         while (!closing) {
             string header = ReadHeader(stream);
@@ -211,7 +229,8 @@ class Receiver : Form
         Text = "iScreenX · AirPlay 连接诊断";
         Size = new Size(740, 440);
         Controls.Add(log); Controls.Add(status);
-        Shown += delegate { try { Start(); } catch (Exception e) { Shutdown(); status.Text = e.Message; } };
+        ShowInTaskbar = false; Opacity = 0;
+        Shown += delegate { try { Start(); Hide(); } catch (Exception e) { MessageBox.Show(e.Message, "iScreenX"); Close(); } };
         FormClosing += delegate { Shutdown(); };
     }
     [STAThread] static void Main() { Application.EnableVisualStyles(); Application.Run(new Receiver()); }

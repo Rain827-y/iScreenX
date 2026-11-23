@@ -1,45 +1,175 @@
-﻿<!doctype html><meta charset="utf-8"><title>iScreenX · 等待画面</title>
-<style>html,body{margin:0;height:100%;background:#101114;color:white;font:16px "Segoe UI",sans-serif}canvas{width:100%;height:100%;object-fit:contain;display:block}p{position:absolute;inset:45% 0 auto;text-align:center}</style>
-<canvas></canvas><p>正在连接 iPhone 画面…</p>
+﻿<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>iScreenX · 屏幕镜像</title>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}
+:root{color-scheme:light;--paper:#f8f9fb;--bar:#fff;--ink:#22252a;--muted:#606670;--line:#10182116;--well:#eceef2;--blue:#2968bb;--panel:#fffffff5;--shadow:#17213820}
+:root[data-theme=dark]{color-scheme:dark;--paper:#191b20;--bar:#222429;--ink:#f4f5f7;--muted:#adb1b9;--line:#ffffff20;--well:#32353c;--blue:#95bbff;--panel:#25272df7;--shadow:#0006}
+html,body{height:100%;margin:0;overflow:hidden}body{display:grid;grid-template-rows:42px minmax(0,1fr);font:14px/1.45 Inter,"Segoe UI","Microsoft YaHei UI",sans-serif;color:var(--ink);background:var(--paper)}
+button{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+header{display:flex;align-items:center;gap:9px;padding:0 10px 0 15px;background:var(--bar);box-shadow:inset 0 -1px var(--line);z-index:2;app-region:drag;-webkit-app-region:drag;user-select:none}.brand-icon{display:grid;place-items:center;color:var(--ink)}.brand{font-size:14px;letter-spacing:-.6px}.status{display:flex;align-items:center;gap:6px;min-width:0;margin-left:6px;color:var(--muted);font-size:11px;white-space:nowrap}.status:before{content:'';flex:none;width:6px;height:6px;border-radius:50%;background:#9aa0a9}body:has(main.live) .status:before{background:#37b56d}#state{overflow:hidden;text-overflow:ellipsis}.tools{display:flex;align-items:center;gap:3px;margin-left:auto;app-region:no-drag;-webkit-app-region:no-drag}.tools button,.dismiss{height:29px;min-width:31px;padding:0 6px;display:inline-grid;place-items:center;border-radius:7px;color:var(--muted)}.tools button:hover,.dismiss:hover,.tools [aria-expanded=true]{background:var(--well);color:var(--ink)}.tools #close:hover{color:white;background:#df454a}.divider{width:1px;height:14px;background:var(--line);margin:0 4px}.tools #record-toggle{color:#db4f55}
+main{position:relative;min-height:0;overflow:hidden;display:grid;place-items:center;background:var(--paper)}main.live{background:#000}.waiting{display:grid;justify-items:center;align-content:center;max-width:100%;text-align:center;padding:20px;gap:9px}.art{position:relative;width:128px;height:88px;margin:0 auto 13px}.monitor,.phone{position:absolute;border:2px solid #868d99;border-radius:9px;background:var(--paper);padding:4px}.monitor{width:105px;height:67px;left:1px;top:3px;box-shadow:0 4px 8px var(--shadow)}.phone{width:36px;height:63px;right:4px;bottom:1px;border-radius:8px;padding:3px;box-shadow:-3px 2px 7px var(--shadow)}.art i{display:block;width:100%;height:100%;border-radius:4px;background:radial-gradient(ellipse 97% 106% at 88% -15%,#cedcf5 55%,transparent 57%),radial-gradient(ellipse 98% 132% at 5% 120%,#869ac9 48%,transparent 50%),linear-gradient(135deg,#c8cef0,#a5b7d9 65%,#8498bf)}.stand{position:absolute;top:69px;left:46px;width:14px;height:9px;background:#9096a1}.stand:after{content:'';position:absolute;width:35px;left:-11px;bottom:-2px;height:3px;background:#9298a4;border-radius:4px}
+h1,h2,p{margin:0}h1{font-size:clamp(22px,3vw,30px);letter-spacing:-1px;font-weight:600}.waiting p{font-size:13px;color:var(--muted)}.target{display:inline-flex;align-items:center;gap:7px;background:var(--bar);border:1px solid var(--line);border-radius:20px;padding:6px 13px;margin-top:6px;font-size:12px}.target svg{width:14px;color:var(--blue)}#help{color:var(--blue);font-size:12px;padding:7px 10px}
+canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.overlay{position:absolute;left:12px;background:#15161994;color:#fff;border-radius:5px;padding:2px 6px;font:12px/1.5 Consolas,monospace;pointer-events:none}#frame-rate{top:10px;color:#63ed8d}#detail{bottom:10px}#detail:empty{display:none}
+dialog{margin:0;position:fixed;inset:46px 9px auto auto;width:min(286px,calc(100vw - 18px));max-height:calc(100dvh - 55px);overflow:auto;border:1px solid var(--line);border-radius:15px;background:var(--panel);backdrop-filter:blur(24px);color:var(--ink);box-shadow:0 10px 40px var(--shadow);padding:15px 16px;font:inherit}dialog[open]{display:grid;gap:13px}dialog::backdrop{background:transparent}.row,.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.sheet-head h2{font-size:16px;letter-spacing:-.4px}.sheet-head small,dialog p{font-size:12px;color:var(--muted)}dialog p{line-height:1.65}.sheet-head small{margin-right:auto}.dismiss{min-width:24px;height:24px;font-size:18px}.segment{display:flex;background:var(--well);border-radius:8px;padding:2px}.segment button{min-width:56px;padding:4px;border-radius:6px;font-size:12px}.segment [aria-pressed=true]{background:var(--bar);box-shadow:0 1px 4px var(--shadow)}.switch{width:37px;height:22px;border-radius:20px;background:#a0a4ab;padding:2px;flex:none}.switch:after{content:'';display:block;width:18px;height:18px;background:white;border-radius:50%;box-shadow:0 1px 3px #0003}.switch[aria-checked=true]{background:#32b66c}.switch[aria-checked=true]:after{transform:translateX(15px)}#volume{width:105px;accent-color:var(--blue)}.row output{font-size:12px;color:var(--muted)}.section-end{border-bottom:1px solid var(--line);padding-bottom:12px}.record{background:#d74752;color:white;padding:8px;border-radius:9px}#theme{display:flex;align-items:center;gap:6px;background:var(--well);border-radius:8px;padding:4px 9px;font-size:12px}#theme svg{width:15px}.guide{padding-left:20px;margin:0;font-size:13px;line-height:1.7}.guide li+li{margin-top:6px}
+@media(max-width:500px){.status{margin-left:0}.tools{gap:0}.divider{margin:0 2px}header{padding:0 5px;gap:5px}.tools button{min-width:26px;padding:0 4px}}@media(max-width:370px){.status span{display:none}}
+@media(max-height:370px){.art{display:none}}
+</style>
+<body><svg style="display:none" aria-hidden="true"><defs>
+
+<symbol id="air" viewBox="0 0 24 24"><path d="M5 17H3V4h18v13h-2M12 13l6 7H6z"/></symbol>
+<symbol id="wireless" viewBox="0 0 24 24"><path d="M2 8q10-9 20 0M5 12q7-6 14 0m-11 4q4-4 8 0"/><circle cx="12" cy="19" r="1"/></symbol>
+<symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></symbol>
+<symbol id="moon" viewBox="0 0 24 24"><path d="M20 15A9 9 0 019 4a9 9 0 1011 11z"/></symbol>
+<symbol id="expand" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m6 0h5v-5"/></symbol>
+<symbol id="tune" viewBox="0 0 24 24"><path d="M3 7h6m4 0h8M3 17h11m4 0h3"/><circle cx="11" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
+<symbol id="audio" viewBox="0 0 24 24"><path d="M3 10h4l5-4v12l-5-4H3zm12-1q3 3 0 6m3-9q6 6 0 12"/></symbol>
+<symbol id="rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></symbol>
+<symbol id="pointer" viewBox="0 0 24 24"><path d="m5 3 14 9-7 1-3 7z"/></symbol></defs></svg>
+<header><span class="brand-icon"><svg><use href="#air"/></svg></span><strong class="brand">iScreenX</strong><span class="status" role="status"><span id="state">正在启动</span></span><div class="tools">
+<button id="record-toggle" data-sheet="record-sheet" title="屏幕录制" aria-label="屏幕录制"><svg><use href="#rec"/></svg></button>
+<button data-sheet="settings" title="投屏设置" aria-label="投屏设置"><svg><use href="#tune"/></svg></button>
+<button id="full" title="全屏" aria-label="全屏"><svg><use href="#expand"/></svg></button><span class="divider"></span>
+<button id="minimize" title="最小化" aria-label="最小化"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button><button id="close" title="关闭" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button></div></header>
+<main aria-label="投屏画面"><div class="waiting"><div class="art" aria-hidden="true"><div class="stand"></div><div class="monitor"><i></i></div><div class="phone"><i></i></div></div>
+<h1>等待屏幕镜像</h1><p>从 iPhone 控制中心选择这个接收端</p><div class="target"><svg><use href="#wireless"/></svg><span id="name">正在查找…</span></div>
+<button id="help" data-sheet="guide">连接指南 ›</button></div><canvas hidden aria-label="iPhone 实时画面"></canvas><span class="overlay" id="frame-rate" hidden></span><span class="overlay" id="detail"></span></main>
+<dialog id="settings" aria-labelledby="settings-title"><div class="sheet-head"><h2 id="settings-title">投屏设置</h2><small>交互预览</small><button class="dismiss" aria-label="关闭设置">×</button></div>
+<div class="row">画质<div class="segment" role="group" aria-label="画质" id="quality"><button aria-pressed="true">中等</button><button aria-pressed="false">高清</button></div></div>
+<div class="row section-end">帧率<div class="segment" role="group" aria-label="帧率" id="fps"><button aria-pressed="true">30 fps</button><button aria-pressed="false">60 fps</button></div></div>
+<div class="row">设备声音<button class="switch" role="switch" aria-label="设备声音" aria-checked="true" id="sound"></button></div>
+<div class="row section-end"><label for="volume">音量</label><input type="range" min="0" max="100" value="75" id="volume"><output for="volume">75%</output></div>
+<div class="row">触控反控<button class="switch" role="switch" aria-label="预览触控反控" aria-checked="false" id="control"></button></div><p class="section-end">仅限越狱设备，支持点击和滑动。</p>
+<div class="row">外观<button id="theme"><svg><use href="#moon"/></svg><span id="theme-label"></span></button></div></dialog>
+<dialog id="record-sheet" aria-labelledby="rec-title"><div class="sheet-head"><h2 id="rec-title">屏幕录制</h2><small>交互预览</small><button class="dismiss" aria-label="关闭录制面板">×</button></div><p>仅录制手机画面和声音。<br>跟随投屏设置 · <span id="format">中等 · 30 fps</span></p><button class="record" aria-pressed="false" id="record">预览录制</button></dialog>
+<dialog id="guide" aria-labelledby="guide-title"><div class="sheet-head"><h2 id="guide-title">连接指南</h2><button class="dismiss" aria-label="关闭连接指南">×</button></div><ol class="guide"><li>将手机与电脑连到同一局域网。</li><li>打开控制中心，轻点「屏幕镜像」。在 iOS 10 上，轻点「AirPlay 镜像」。</li><li>选择等待画面中显示的接收端名称。</li></ol></dialog>
 <script>
-(async()=>{
- const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d'),msg=document.querySelector('p');
- let count=0,needKey=true;
- function status(s){msg.hidden=false;msg.textContent=s}
+
+const $=s=>document.querySelector(s),base=location.pathname,canvas=$('canvas'),ctx=canvas.getContext('2d');
+const rateLabel=$('#frame-rate');
+for(const trigger of document.querySelectorAll('[data-sheet]')){
+ const sheet=document.getElementById(trigger.dataset.sheet);
+ trigger.setAttribute('aria-haspopup','dialog');
+ trigger.setAttribute('aria-controls',sheet.id);
+ trigger.setAttribute('aria-expanded','false');
+ trigger.onclick=()=>{sheet.showModal();trigger.setAttribute('aria-expanded','true')};
+ sheet.onclose=()=>trigger.setAttribute('aria-expanded','false');
+ sheet.querySelector('.dismiss').onclick=()=>sheet.close();
+ sheet.onclick=e=>{
+  const r=sheet.getBoundingClientRect();
+  if(e.target===sheet && (e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom))sheet.close();
+ };
+}
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+for(const group of document.querySelectorAll('.segment')){
+ group.addEventListener('click',event=>{
+  const chosen=event.target.closest('button');if(!chosen)return;
+  for(const option of group.querySelectorAll('button'))option.setAttribute('aria-pressed',String(option===chosen));
+  $('#format').textContent=['quality','fps'].map(id=>document.querySelector('#'+id+' [aria-pressed=true]').textContent).join(' · ');
+ });
+}
+for(const toggle of document.querySelectorAll('.switch')){
+ toggle.onclick=()=>{
+  const enabled=toggle.getAttribute('aria-checked')!=='true';
+  toggle.setAttribute('aria-checked',String(enabled));
+  if(toggle.id==='sound')$('#volume').disabled=!enabled;
+ };
+}
+$('#volume').oninput=()=>$('output[for=volume]').textContent=$('#volume').value+'%';
+let recordingTimer;
+$('#record').onclick=()=>{
+ const button=$('#record'),start=button.getAttribute('aria-pressed')!=='true';
+ button.setAttribute('aria-pressed',String(start));
+ clearInterval(recordingTimer);
+ if(!start){button.textContent='预览录制';return}
+ const beginning=Date.now();
+ const tick=()=>{
+  const seconds=Math.floor((Date.now()-beginning)/1000);
+  button.textContent='结束预览 · '+String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+ };
+ tick();recordingTimer=setInterval(tick,500);
+};
+function appearance(theme){
+ document.documentElement.dataset.theme=theme;
+ window.chrome?.webview?.postMessage('theme-'+theme);
+ const label=theme==='dark'?'切换浅色外观':'切换深色外观';
+ $('#theme-label').textContent=theme==='dark'?'深色':'浅色';
+ $('#theme').title=label;$('#theme').setAttribute('aria-label',label);
+ $('#theme use').setAttribute('href',theme==='dark'?'#sun':'#moon');
+}
+const preference=document.cookie.match(/(?:^|; )theme=(light|dark)/);
+appearance(preference?preference[1]:'light');
+$('#theme').onclick=()=>{const t=document.documentElement.dataset.theme==='dark'?'light':'dark';appearance(t);document.cookie='theme='+t+'; Path=/; Max-Age=31536000; SameSite=Strict'};
+$('#full').onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()};
+document.onfullscreenchange=()=>{const label=document.fullscreenElement?'退出全屏':'全屏';$('#full').title=label;$('#full').setAttribute('aria-label',label)};
+for(const command of ['minimize','close'])$('#'+command).onclick=()=>window.chrome.webview.postMessage(command);
+function waiting(message,detail=''){
+ rateLabel.hidden=true;canvas.hidden=true;$('.waiting').hidden=false;$('main').classList.remove('live');
+ $('#state').textContent=message;$('#detail').textContent=detail;
+}
+async function play(id,device){
+ let first=true,needKey=true,lengthSize=4,failure;
+ const response=await fetch(base+'/video/'+id);
+ if(!response.ok)throw Error('无法读取视频通道');
+ const reader=response.body.getReader();
+ let drawn=0,sampleStart=0;
  const decoder=new VideoDecoder({output(frame){
-   if(canvas.width!==frame.displayWidth || canvas.height!==frame.displayHeight){
-     canvas.width=frame.displayWidth;canvas.height=frame.displayHeight;
-   }
-   ctx.drawImage(frame,0,0,canvas.width,canvas.height);frame.close();msg.hidden=true;
-   count++;if(count===1 || count%120===0){
-     document.title='iScreenX · '+canvas.width+' × '+canvas.height;
-     fetch(location.pathname+'/frames/'+count+'/'+canvas.width+'x'+canvas.height).catch(()=>{});
-   }
- },error(e){status(e.message)}});
- const reader=(await fetch(location.pathname+'/video')).body.getReader();
+   try{
+    if(canvas.width!==frame.displayWidth||canvas.height!==frame.displayHeight){canvas.width=frame.displayWidth;canvas.height=frame.displayHeight}
+    ctx.drawImage(frame,0,0,canvas.width,canvas.height);
+    drawn++;if(!sampleStart)sampleStart=performance.now();
+    canvas.hidden=false;$('.waiting').hidden=true;$('main').classList.add('live');
+    $('#state').textContent=device+' · 投屏中';$('#detail').textContent=canvas.width+' × '+canvas.height;
+    if(first){first=false;fetch(base+'/first-frame').catch(()=>{})}
+   }finally{frame.close()}
+ },error(e){failure=e;reader.cancel()}});
+ const meter=setInterval(()=>{
+  if(!sampleStart)return;
+  const now=performance.now(),elapsed=now-sampleStart;
+  if(elapsed<950)return;
+  rateLabel.textContent=Math.round(drawn*1000/elapsed)+'fps';
+  rateLabel.hidden=false;drawn=0;sampleStart=now;
+ },250);
  let chunk=new Uint8Array(),offset=0;
  async function read(n){
    const b=new Uint8Array(n);let pos=0;
    while(pos<n){
-     if(offset===chunk.length){const r=await reader.read();if(r.done)throw Error('投屏已结束');chunk=r.value;offset=0;}
+     if(offset===chunk.length){const r=await reader.read();if(r.done){if(failure)throw failure;return null}chunk=r.value;offset=0}
      const l=Math.min(n-pos,chunk.length-offset);b.set(chunk.subarray(offset,offset+l),pos);pos+=l;offset+=l;
    }return b;
  }
- for(;;){
-   const h=new DataView((await read(13)).buffer),type=h.getUint8(0),n=h.getUint32(1,true);
+ try{
+  for(;;){
+   const header=await read(13);if(!header)break;
+   const h=new DataView(header.buffer),type=h.getUint8(0),n=h.getUint32(1,true);
    if(n>16*1024*1024)throw Error('视频数据长度异常');
-   const data=await read(n);
+   const data=await read(n);if(!data)break;
    if(type===1){
-     if(data.length<7)continue;
-     decoder.configure({codec:'avc1.'+Array.from(data.slice(1,4),v=>v.toString(16).padStart(2,'0')).join(''),description:data,optimizeForLatency:true});
-     needKey=true;
+    if(data.length<7)continue;
+    lengthSize=(data[4]&3)+1;
+    decoder.configure({codec:'avc1.'+Array.from(data.slice(1,4),v=>v.toString(16).padStart(2,'0')).join(''),description:data,optimizeForLatency:true});needKey=true;
    }else if(decoder.state==='configured'){
-     let key=false;
-     const v=new DataView(data.buffer);
-     for(let i=0;i+4<data.length;){const len=v.getUint32(i);i+=4;if(!len||len>data.length-i)throw Error('H.264 数据格式错误');if((data[i]&31)===5)key=true;i+=len}
-     if(needKey&&!key)continue;needKey=false;
-     decoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:h.getFloat64(5,true),data}));
+    let key=false;
+    for(let i=0;i<data.length;){
+     if(i+lengthSize>data.length)throw Error('H.264 数据格式错误');
+     let len=0;for(let j=0;j<lengthSize;j++)len=len*256+data[i++];
+     if(!len||len>data.length-i)throw Error('H.264 数据格式错误');
+     if((data[i]&31)===5)key=true;i+=len;
+    }
+    if(needKey&&!key)continue;needKey=false;
+    decoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:h.getFloat64(5,true),data}));
    }
+  }
+ }finally{clearInterval(meter);rateLabel.hidden=true;if(decoder.state!=='closed')decoder.close();await reader.cancel().catch(()=>{})}
+}
+(async()=>{
+ let last='',error='';
+ for(;;){
+  try{
+   const response=await fetch(base+'/status');if(!response.ok)throw Error();
+   const [name,id,device]=(await response.text()).split('\n');$('#name').textContent=name;
+   if(id && last!==id){last=id;error='';waiting('正在连接',device);try{await play(id,device)}catch(e){error=e.message}}
+   if(!id){last='';waiting('等待连接',error);error=''}else waiting('等待连接',error);
+  }catch{waiting('接收端已离线','请重新打开 iScreenX')}
+  await delay(400);
  }
-})().catch(e=>{const p=document.querySelector('p');p.hidden=false;p.textContent=e.message});
-</script>
+})();
+</script></html>

@@ -18,10 +18,12 @@ internal sealed class Mirror : IDisposable
     readonly Action<string> note;
     readonly List<IDisposable> resources=new List<IDisposable>();
     byte[] handshake,sessionKey;
+    readonly Viewer viewer;
+    string senderName="iOS";
     bool fpStarted;
     volatile bool closed;
-    internal Mirror(TcpClient control,Action<string> report) {
-        local=((IPEndPoint)control.Client.LocalEndPoint).Address;peer=((IPEndPoint)control.Client.RemoteEndPoint).Address;note=report;
+    internal Mirror(TcpClient control,Action<string> report,Viewer display) {
+        local=((IPEndPoint)control.Client.LocalEndPoint).Address;peer=((IPEndPoint)control.Client.RemoteEndPoint).Address;note=report;viewer=display;
     }
     internal byte[] FairPlay(byte[] data){
         if(data.Length<16 || Encoding.ASCII.GetString(data,0,4)!="FPLY" || data[4]!=3 || data[5]!=1)throw new InvalidDataException("FairPlay 版本或消息格式不符");
@@ -77,6 +79,8 @@ internal sealed class Mirror : IDisposable
     }
     internal byte[] Setup(byte[] payload,byte[] secret){
         var req=Plist.Read(payload);var reply=new Dictionary<string,object>();
+        object name;
+        if(req.TryGetValue("name",out name) && name is string && !String.IsNullOrWhiteSpace((string)name))senderName=(string)name;
         if(req.ContainsKey("ekey")){
             byte[] wrapped=req["ekey"] as byte[];
             if(handshake==null || wrapped==null || wrapped.Length!=72)throw new InvalidDataException("会话密钥无效");
@@ -114,7 +118,8 @@ internal sealed class Mirror : IDisposable
     }
     void Video(TcpClient client,byte[] key,byte[] counter){
         note("已连接视频通道");
-        using(var viewer=Track(new Viewer(note)))
+        string id=viewer.Begin(senderName);
+        try {
         using(var aes=Aes.Create()){
             aes.Mode=CipherMode.ECB;aes.Padding=PaddingMode.None;aes.Key=key;
             using(var cipher=aes.CreateEncryptor()){
@@ -137,10 +142,12 @@ internal sealed class Mirror : IDisposable
                             for(int i=0;i<len;i++)b[p+i]^=pad[used+i];p+=len;used+=len;
                         }
                     }else if(h[4]!=1)continue;
-                    if(n>0)viewer.Send(h[4],b,BitConverter.ToUInt64(h,8));
+                    if(n>0)viewer.Send(id,h[4],b,BitConverter.ToUInt64(h,8));
                 }
             }
         }
+    }
+        finally {viewer.End(id);}
     }
     public void Dispose(){
         lock(resources){closed=true;foreach(var r in resources)r.Dispose();resources.Clear();}
