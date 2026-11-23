@@ -181,6 +181,8 @@ class Receiver : Form
             string path = request[1].Split('?')[0], code = "200 OK", extra = "";
             byte[] body = new byte[0];
             if (request[0] == "GET" && path == "/info") {
+                var display=viewer.DesiredDisplay;
+                Note("镜像协商目标 "+display.Width+" × "+display.Height+"，最高 "+display.Fps+"fps");
                 body = Plist.Write(new Dictionary<string,object>{
                     {"deviceID",device},{"name",serviceName},{"model",Model},{"sourceVersion",Version},
                     {"features",0x5A7FFFF7},{"statusFlags",4},{"protocolVersion","1.0"},{"pk",publicKey},{"vv",2},
@@ -189,9 +191,9 @@ class Receiver : Form
                         new Dictionary<string,object>{{"type",101},{"audioInputFormats",0},{"audioOutputFormats",(1<<11)|(1<<22)|(1<<24)}}
                     }},
                     {"displays",new object[]{new Dictionary<string,object>{
-                        {"uuid","4ed36a40-3af2-4be2-91b9-93e3f35f22c3"},{"width",1280},{"height",720},
-                        {"widthPixels",1280},{"heightPixels",720},{"rotation",false},{"refreshRate",1.0/30},
-                        {"maxFPS",30},{"overscanned",false},{"features",14}
+                        {"uuid","4ed36a40-3af2-4be2-91b9-93e3f35f22c3"},{"width",display.Width},{"height",display.Height},
+                        {"widthPixels",display.Width},{"heightPixels",display.Height},{"rotation",false},{"refreshRate",1.0/display.Fps},
+                        {"maxFPS",display.Fps},{"overscanned",false},{"features",14}
                     }}}
                 });
                 extra = "Content-Type: application/x-apple-binary-plist\r\n";

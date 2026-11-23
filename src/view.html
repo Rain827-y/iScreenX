@@ -36,8 +36,9 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <button id="help" data-sheet="guide">连接指南 ›</button></div><canvas hidden aria-label="iPhone 实时画面"></canvas>
 <div class="stream-info" role="group" aria-label="投屏信息"><span id="frame-rate" hidden></span><span id="resolution"></span></div></main>
 <dialog id="settings" aria-label="投屏设置">
-<div class="row">画质<div class="segment" role="group" aria-label="画质" id="quality"><button aria-pressed="true">中等</button><button aria-pressed="false">高清</button></div></div>
-<div class="row section-end">帧率<div class="segment" role="group" aria-label="帧率" id="fps"><button aria-pressed="true">30 fps</button><button aria-pressed="false">60 fps</button></div></div>
+<div class="row">画质<div class="segment" role="group" aria-label="画质" id="quality"><button data-value="720" aria-pressed="true">中等</button><button data-value="1080" aria-pressed="false">高清</button></div></div>
+<div class="row">帧率<div class="segment" role="group" aria-label="帧率" id="fps"><button data-value="30" aria-pressed="true">30 fps</button><button data-value="60" aria-pressed="false">60 fps</button></div></div>
+<p class="section-end">画质和帧率在下次连接镜像时生效。</p>
 <div class="row">设备声音<button class="switch" role="switch" aria-label="设备声音" aria-checked="true" id="sound"></button></div>
 <div class="row section-end"><label for="volume">音量</label><input type="range" min="0" max="100" value="75" id="volume"><output for="volume">75%</output></div>
 <div class="row">触控反控<button class="switch" role="switch" aria-label="预览触控反控" aria-checked="false" id="control"></button></div><p class="section-end">仅限越狱设备，支持点击和滑动。</p>
@@ -67,13 +68,23 @@ for(const trigger of document.querySelectorAll('[data-sheet]')){
  };
 }
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-for(const group of document.querySelectorAll('.segment')){
+const displayGroups=[$('#quality'),$('#fps')];
+const savedMode='{{displayMode}}'.split('/');
+function updateFormat(){
+ const selected=displayGroups.map(group=>group.querySelector('[aria-pressed=true]'));
+ $('#format').textContent=selected.map(option=>option.textContent).join(' · ');
+ return selected.map(option=>option.dataset.value).join('/');
+}
+for(const [index,group] of displayGroups.entries()){
+ const saved=group.querySelector('[data-value="'+savedMode[index]+'"]');
+ if(saved)for(const option of group.children)option.setAttribute('aria-pressed',String(option===saved));
  group.addEventListener('click',event=>{
   const chosen=event.target.closest('button');if(!chosen)return;
   for(const option of group.querySelectorAll('button'))option.setAttribute('aria-pressed',String(option===chosen));
-  $('#format').textContent=['quality','fps'].map(id=>document.querySelector('#'+id+' [aria-pressed=true]').textContent).join(' · ');
+  window.chrome?.webview?.postMessage('display:'+updateFormat());
  });
 }
+updateFormat();
 for(const toggle of document.querySelectorAll('.switch')){
  toggle.onclick=()=>{
   const enabled=toggle.getAttribute('aria-checked')!=='true';
@@ -128,7 +139,9 @@ async function play(id){
  const frames=[];
  let animation=0,decoded=0,displayed=0,maxQueue=0,origin=null,previousStamp=null;
  // Use the sender clock to space out frames that arrived together over Wi-Fi.
- let playoutDelay=75,desiredDelay=75,decoderConfig,latestInput=-Infinity;
+ let playoutDelay=75,desiredDelay=75,decoderConfig;
+ const compressed=[];
+ let decodeTimer=0,queuedBytes=0;
  const timing=new Map(),localAges=[],sourceAges=[];
  function percentile(values,fraction){
   if(!values.length)return -1;
@@ -142,14 +155,11 @@ async function play(id){
   }catch{}
  },300);
  function clearFrames(){while(frames.length)frames.shift().frame.close();origin=previousStamp=null;}
- function paint(){
+ function paint(now){
   animation=0;
-  const now=performance.now();
-  let item=null;
-  while(frames.length && frames[0].at<=now){
-   if(item)item.frame.close();
-   item=frames.shift();
-  }
+  // Allow one refresh of scheduling jitter before skipping a ready frame.
+  while(frames.length>1 && frames[1].at<now-12)frames.shift().frame.close();
+  const item=frames.length && frames[0].at<=now+3?frames.shift():null;
   if(frames.length)animation=requestAnimationFrame(paint);
   if(!item)return;
   const frame=item.frame;
@@ -172,23 +182,44 @@ async function play(id){
   const meta=timing.get(frame.timestamp);
   timing.delete(frame.timestamp);
   if(!meta || document.hidden){frame.close();return;}
-  const stamp=frame.timestamp/1000,now=performance.now();
-  if(now-meta.arrival>300 && latestInput>frame.timestamp){frame.close();return;}
+  frames.push({frame,at:meta.due,arrival:meta.arrival,sourceAge:meta.arrival-meta.source});
+  while(frames.length>10)frames.shift().frame.close();
+  if(!animation)animation=requestAnimationFrame(paint);
+ },error(e){failure=e;reader.cancel()}});
+ function presentationTime(timestamp,arrival){
+  const stamp=timestamp/1000;
   playoutDelay+=Math.max(-3,Math.min(3,desiredDelay-playoutDelay));
-  const offset=meta.arrival-stamp;
+  const offset=arrival-stamp;
   if(origin===null || stamp<=previousStamp || stamp-previousStamp>1000 || Math.abs(origin-offset)>1000){
-   clearFrames();origin=offset;
+   origin=offset;
   }else{
    // The earliest arrival is a low-delay clock reference. A packet burst must
    // not move that reference forward and add another full buffer at the decoder.
    origin=Math.min(origin+0.02,offset);
   }
   previousStamp=stamp;
-  let due=Math.min(meta.arrival+playoutDelay,origin+stamp+playoutDelay);
-  frames.push({frame,at:due,arrival:meta.arrival,sourceAge:meta.arrival-meta.source});
-  while(frames.length>Math.ceil(playoutDelay*0.06)+3)frames.shift().frame.close();
-  if(!animation)animation=requestAnimationFrame(paint);
- },error(e){failure=e;reader.cancel()}});
+  return origin+stamp+playoutDelay;
+ }
+ function pumpDecoder(){
+  decodeTimer=0;
+  try{
+   while(compressed.length){
+    const next=compressed[0],wait=next.due-performance.now()-65;
+    if(wait>1 || decoder.decodeQueueSize>=6){
+     decodeTimer=setTimeout(pumpDecoder,wait>1?Math.ceil(wait):3);return;
+    }
+    compressed.shift();queuedBytes-=next.data.length;
+    timing.set(next.timestamp,next);
+    decoder.decode(new EncodedVideoChunk({type:next.type,timestamp:next.timestamp,data:next.data}));
+    next.data=null;
+    maxQueue=Math.max(maxQueue,decoder.decodeQueueSize);
+   }
+  }catch(e){failure=e;reader.cancel()}
+ }
+ function resetDecoder(){
+  clearTimeout(decodeTimer);decodeTimer=queuedBytes=0;compressed.length=0;
+  decoder.reset();clearFrames();timing.clear();needKey=true;
+ }
  const report=setInterval(()=>{
   fetch(base+'/vstats/'+[decoded,displayed,maxQueue,percentile(localAges,.5),percentile(localAges,.95),percentile(sourceAges,.5)].join('/')).catch(()=>{});
   decoded=displayed=maxQueue=0;localAges.length=sourceAges.length=0;
@@ -216,6 +247,7 @@ async function play(id){
    const data=await read(n);if(!data)break;
    if(type===1){
     if(data.length<7)continue;
+    if(decoderConfig)resetDecoder();
     lengthSize=(data[4]&3)+1;
     decoderConfig={codec:'avc1.'+Array.from(data.slice(1,4),v=>v.toString(16).padStart(2,'0')).join(''),description:data,optimizeForLatency:true};
     decoder.configure(decoderConfig);needKey=true;
@@ -229,18 +261,19 @@ async function play(id){
     }
     const timestamp=Math.trunc(h.getFloat64(5,true)),arrival=h.getFloat64(13,true)-performance.timeOrigin;
     const source=h.getFloat64(21,true)-performance.timeOrigin;
-    if(document.hidden || decoder.decodeQueueSize>18 || timing.size>=64){
-     decoder.reset();clearFrames();timing.clear();needKey=true;
+    if(document.hidden || compressed.length>=96 || queuedBytes+data.length>32*1024*1024 || timing.size>=64){
+     resetDecoder();
      if(document.hidden)continue;
     }
     if(needKey&&!key)continue;
     if(decoder.state!=='configured')decoder.configure(decoderConfig);
-    needKey=false;latestInput=timestamp;timing.set(timestamp,{arrival,source});
-    maxQueue=Math.max(maxQueue,decoder.decodeQueueSize);
-    decoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp,data}));
+    needKey=false;
+    compressed.push({type:key?'key':'delta',timestamp,data,arrival,source,due:presentationTime(timestamp,arrival)});
+    queuedBytes+=data.length;
+    if(!decodeTimer)pumpDecoder();
    }
   }
- }finally{clearInterval(delayPoll);clearInterval(report);cancelAnimationFrame(animation);clearFrames();clearInterval(meter);rateLabel.hidden=true;if(decoder.state!=='closed')decoder.close();await reader.cancel().catch(()=>{})}
+ }finally{clearTimeout(decodeTimer);clearInterval(delayPoll);clearInterval(report);cancelAnimationFrame(animation);clearFrames();clearInterval(meter);rateLabel.hidden=true;if(decoder.state!=='closed')decoder.close();await reader.cancel().catch(()=>{})}
 }
 (async()=>{
  for(;;){

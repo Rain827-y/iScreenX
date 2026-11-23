@@ -21,6 +21,7 @@ internal sealed class Viewer : IDisposable
     string session = "", device = "";
     volatile bool stopped;
     internal volatile int AudioVolume=75;
+    internal volatile DisplayMode DesiredDisplay=DisplayMode.Load();
     volatile int audioDelay=75, lastAudioTick;
     internal void AudioUpdated(int delay){
         audioDelay=delay;
@@ -35,6 +36,7 @@ internal sealed class Viewer : IDisposable
             string url = "http://127.0.0.1:" + ((IPEndPoint)server.LocalEndpoint).Port + route;
             window = new MirrorWindow(new Uri(url));
             window.VolumeChanged += delegate(int value){AudioVolume=value;};
+            window.DisplayChanged += delegate(DisplayMode mode){DesiredDisplay=mode;mode.Save();};
             window.FormClosed += delegate { if (!stopped) close(); };
             window.Show();
             ThreadPool.QueueUserWorkItem(delegate { Listen(); });
@@ -83,7 +85,10 @@ internal sealed class Viewer : IDisposable
             if (line[0] != "GET") return;
             if (path == route) {
                 Header(s,"text/html; charset=utf-8");
-                using (var page = Assembly.GetExecutingAssembly().GetManifestResourceStream("view.html")) page.CopyTo(s);
+                using(var page=new StreamReader(Assembly.GetExecutingAssembly().GetManifestResourceStream("view.html"),Encoding.UTF8)){
+                    byte[] html=Encoding.UTF8.GetBytes(page.ReadToEnd().Replace("{{displayMode}}",DesiredDisplay.ToString()));
+                    s.Write(html,0,html.Length);
+                }
             } else if (path == route + "/status") {
                 string state;
                 lock (gate) state = receiverName + "\n" + session + "\n" + device;

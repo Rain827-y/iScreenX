@@ -10,6 +10,7 @@ internal sealed class MirrorWindow : Form
 {
     readonly WebView2 browser = new WebView2();
     internal event Action<int> VolumeChanged;
+    internal event Action<DisplayMode> DisplayChanged;
     readonly Uri page;
     bool fullscreen;
     Rectangle restoredBounds;
@@ -48,6 +49,11 @@ internal sealed class MirrorWindow : Form
             core.WebMessageReceived += delegate(object sender, CoreWebView2WebMessageReceivedEventArgs args) {
                 if (args.Source != page.AbsoluteUri) return;
                 string message=args.TryGetWebMessageAsString();
+                if(message.StartsWith("display:",StringComparison.Ordinal)){
+                    var mode=DisplayMode.Parse(message.Substring(8));
+                    if(mode!=null && DisplayChanged!=null)DisplayChanged(mode);
+                    return;
+                }
                 int volume;
                 if(message.StartsWith("volume:",StringComparison.Ordinal) && Int32.TryParse(message.Substring(7),out volume) && volume>=0 && volume<=100){
                     if(VolumeChanged!=null)VolumeChanged(volume);
