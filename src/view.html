@@ -8,7 +8,10 @@ button{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer
 header{display:flex;align-items:center;gap:9px;padding:0 10px 0 15px;background:var(--bar);box-shadow:inset 0 -1px var(--line);z-index:2;app-region:drag;-webkit-app-region:drag;user-select:none}.tools{display:flex;align-items:center;gap:3px;margin-left:auto;app-region:no-drag;-webkit-app-region:no-drag}.tools button,.dismiss{height:29px;min-width:31px;padding:0 6px;display:inline-grid;place-items:center;border-radius:7px;color:var(--muted)}.tools button:hover,.dismiss:hover,.tools [aria-expanded=true]{background:var(--well);color:var(--ink)}.tools #close:hover{color:white;background:#df454a}.divider{width:1px;height:14px;background:var(--line);margin:0 4px}.tools #record-toggle{color:#db4f55}
 main{position:relative;min-height:0;overflow:hidden;display:grid;place-items:center;background:var(--paper)}main.live{background:#000}.waiting{display:grid;justify-items:center;align-content:center;max-width:100%;text-align:center;padding:20px;gap:clamp(9px,min(1.55vw,2.35vh),20px)}.art{font-size:clamp(16px,min(2.7vw,4.3vh),34px);position:relative;width:8em;height:5.5em;margin:0 auto 0.8125em}.monitor,.phone{position:absolute;border:0.125em solid #868d99;border-radius:0.5625em;background:var(--paper);padding:0.25em}.monitor{width:6.5625em;height:4.1875em;left:0.0625em;top:0.1875em;box-shadow:0 0.25em 0.5em var(--shadow)}.phone{width:2.25em;height:3.9375em;right:0.25em;bottom:0.0625em;border-radius:0.5em;padding:0.1875em;box-shadow:-0.1875em 0.125em 0.4375em var(--shadow)}.art i{display:block;width:100%;height:100%;border-radius:0.25em;background:radial-gradient(ellipse 97% 106% at 88% -15%,#cedcf5 55%,transparent 57%),radial-gradient(ellipse 98% 132% at 5% 120%,#869ac9 48%,transparent 50%),linear-gradient(135deg,#c8cef0,#a5b7d9 65%,#8498bf)}.stand{position:absolute;top:4.3125em;left:2.875em;width:0.875em;height:0.5625em;background:#9096a1}.stand:after{content:'';position:absolute;width:2.1875em;left:-0.6875em;bottom:-0.125em;height:0.1875em;background:#9298a4;border-radius:0.25em}
 h1,h2,p{margin:0}h1{font-size:clamp(22px,min(4vw,6.5vh),52px);letter-spacing:-1px;font-weight:600}.waiting p{font-size:clamp(13px,min(1.8vw,2.9vh),22px);color:var(--muted)}.target{display:inline-flex;align-items:center;gap:7px;background:var(--bar);border:1px solid var(--line);border-radius:99px;padding:.48em 1.05em;margin-top:.3em;font-size:clamp(12px,min(1.6vw,2.6vh),20px);max-width:100%}.target #name{min-width:0;overflow-wrap:anywhere}.target svg{width:1.15em;height:1.15em;flex:none;color:var(--blue)}#help{color:var(--blue);font-size:clamp(12px,min(1.55vw,2.5vh),18px);padding:.55em .85em}
-canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.overlay{position:absolute;left:12px;background:#15161994;color:#fff;border-radius:5px;padding:2px 6px;font:12px/1.5 Consolas,monospace;pointer-events:none}#frame-rate{top:10px;color:#63ed8d}#detail{bottom:10px}#detail:empty{display:none}
+canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stream-info{position:absolute;top:10px;left:12px;display:inline-flex;align-items:center;padding:4px 9px;border:1px solid #ffffff24;border-radius:8px;background:rgb(20 23 27 / 50%);color:#e3e5e8;font:500 12px/16px "Segoe UI",sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
+main:not(.live) .stream-info{display:none}
+#frame-rate{color:#79ed9d;font-weight:600;margin-right:8px;padding-right:8px;border-right:1px solid #ffffff38}
 dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto auto;width:min(286px,calc(100vw - 18px));max-height:calc(100dvh - var(--toolbar-height) - 13px);overflow:auto;border:1px solid var(--line);border-radius:15px;background:var(--panel);backdrop-filter:blur(24px);color:var(--ink);box-shadow:0 10px 40px var(--shadow);padding:15px 16px;font:inherit}dialog[open]{display:grid;gap:13px}dialog::backdrop{background:transparent}.row,.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.sheet-head h2{font-size:16px;letter-spacing:-.4px}.sheet-head small,dialog p{font-size:12px;color:var(--muted)}dialog p{line-height:1.65}.sheet-head small{margin-right:auto}.dismiss{min-width:24px;height:24px;font-size:18px}.segment{display:flex;background:var(--well);border-radius:8px;padding:2px}.segment button{min-width:56px;padding:4px;border-radius:6px;font-size:12px}.segment [aria-pressed=true]{background:var(--bar);box-shadow:0 1px 4px var(--shadow)}.switch{width:37px;height:22px;border-radius:20px;background:#a0a4ab;padding:2px;flex:none}.switch:after{content:'';display:block;width:18px;height:18px;background:white;border-radius:50%;box-shadow:0 1px 3px #0003}.switch[aria-checked=true]{background:#32b66c}.switch[aria-checked=true]:after{transform:translateX(15px)}#volume{width:105px;accent-color:var(--blue)}.row output{font-size:12px;color:var(--muted)}.section-end{border-bottom:1px solid var(--line);padding-bottom:12px}.record{background:#d74752;color:white;padding:8px;border-radius:9px}#theme{display:flex;align-items:center;gap:6px;background:var(--well);border-radius:8px;padding:4px 9px;font-size:12px}#theme svg{width:15px}.guide{padding-left:20px;margin:0;font-size:13px;line-height:1.7}.guide li+li{margin-top:6px}
 @media(max-width:500px){.tools{gap:0}.divider{margin:0 2px}header{padding:0 5px;gap:5px}.tools button{min-width:26px;padding:0 4px}}
 @media(max-height:370px){.art{display:none}}
@@ -30,13 +33,15 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <button id="minimize" title="最小化" aria-label="最小化"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button><button id="close" title="关闭" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button></div></header>
 <main aria-label="投屏画面"><div class="waiting"><div class="art" aria-hidden="true"><div class="stand"></div><div class="monitor"><i></i></div><div class="phone"><i></i></div></div>
 <h1>等待屏幕镜像</h1><p>从 iPhone 控制中心选择这个接收端</p><div class="target"><svg><use href="#wireless"/></svg><span id="name">正在查找…</span></div>
-<button id="help" data-sheet="guide">连接指南 ›</button></div><canvas hidden aria-label="iPhone 实时画面"></canvas><span class="overlay" id="frame-rate" hidden></span><span class="overlay" id="detail"></span></main>
+<button id="help" data-sheet="guide">连接指南 ›</button></div><canvas hidden aria-label="iPhone 实时画面"></canvas>
+<div class="stream-info" role="group" aria-label="投屏信息"><span id="frame-rate" hidden></span><span id="resolution"></span></div></main>
 <dialog id="settings" aria-labelledby="settings-title"><div class="sheet-head"><h2 id="settings-title">投屏设置</h2><small>交互预览</small><button class="dismiss" aria-label="关闭设置">×</button></div>
 <div class="row">画质<div class="segment" role="group" aria-label="画质" id="quality"><button aria-pressed="true">中等</button><button aria-pressed="false">高清</button></div></div>
 <div class="row section-end">帧率<div class="segment" role="group" aria-label="帧率" id="fps"><button aria-pressed="true">30 fps</button><button aria-pressed="false">60 fps</button></div></div>
 <div class="row">设备声音<button class="switch" role="switch" aria-label="设备声音" aria-checked="true" id="sound"></button></div>
 <div class="row section-end"><label for="volume">音量</label><input type="range" min="0" max="100" value="75" id="volume"><output for="volume">75%</output></div>
 <div class="row">触控反控<button class="switch" role="switch" aria-label="预览触控反控" aria-checked="false" id="control"></button></div><p class="section-end">仅限越狱设备，支持点击和滑动。</p>
+<div class="row"><label for="show-info">显示帧率和分辨率</label><button class="switch" role="switch" aria-checked="true" id="show-info"></button></div>
 <div class="row">外观<button id="theme"><svg><use href="#moon"/></svg><span id="theme-label"></span></button></div></dialog>
 <dialog id="record-sheet" aria-labelledby="rec-title"><div class="sheet-head"><h2 id="rec-title">屏幕录制</h2><small>交互预览</small><button class="dismiss" aria-label="关闭录制面板">×</button></div><p>仅录制手机画面和声音。<br>跟随投屏设置 · <span id="format">中等 · 30 fps</span></p><button class="record" aria-pressed="false" id="record">预览录制</button></dialog>
 <dialog id="guide" aria-labelledby="guide-title"><div class="sheet-head"><h2 id="guide-title">连接指南</h2><button class="dismiss" aria-label="关闭连接指南">×</button></div><ol class="guide"><li>将手机与电脑连到同一局域网。</li><li>打开控制中心，轻点「屏幕镜像」。在 iOS 10 上，轻点「AirPlay 镜像」。</li><li>选择等待画面中显示的接收端名称。</li></ol></dialog>
@@ -44,6 +49,10 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 
 const $=s=>document.querySelector(s),base=location.pathname,canvas=$('canvas'),ctx=canvas.getContext('2d');
 const rateLabel=$('#frame-rate');
+const waitingHint=$('.waiting p').textContent;
+const streamInfo=$('.stream-info');
+streamInfo.hidden=/(?:^|; )streamInfo=off(?:;|$)/.test(document.cookie);
+$('#show-info').setAttribute('aria-checked',String(!streamInfo.hidden));
 for(const trigger of document.querySelectorAll('[data-sheet]')){
  const sheet=document.getElementById(trigger.dataset.sheet);
  trigger.setAttribute('aria-haspopup','dialog');
@@ -70,6 +79,10 @@ for(const toggle of document.querySelectorAll('.switch')){
   const enabled=toggle.getAttribute('aria-checked')!=='true';
   toggle.setAttribute('aria-checked',String(enabled));
   if(toggle.id==='sound'){$('#volume').disabled=!enabled;applyVolume()}
+  if(toggle.id==='show-info'){
+   streamInfo.hidden=!enabled;
+   document.cookie='streamInfo='+(enabled?'on':'off')+'; Path=/; Max-Age=31536000; SameSite=Strict';
+  }
  };
 }
 function applyVolume(){window.chrome?.webview?.postMessage('volume:'+($('#volume').disabled?'0':$('#volume').value))}
@@ -104,7 +117,7 @@ document.onfullscreenchange=()=>{const label=document.fullscreenElement?'退出�
 for(const command of ['minimize','close'])$('#'+command).onclick=()=>window.chrome.webview.postMessage(command);
 function waiting(message,detail=''){
  rateLabel.hidden=true;canvas.hidden=true;$('.waiting').hidden=false;$('main').classList.remove('live');
- $('.waiting h1').textContent=message;$('#detail').textContent=detail;
+ $('.waiting h1').textContent=message;$('.waiting p').textContent=detail||waitingHint;
 }
 async function play(id){
  let first=true,needKey=true,lengthSize=4,failure;
@@ -147,7 +160,7 @@ async function play(id){
    localAges.push(performance.now()-item.arrival);
    if(Number.isFinite(item.sourceAge))sourceAges.push(item.sourceAge);
    drawn++;displayed++;if(!sampleStart)sampleStart=performance.now();
-   if(first||resized)$('#detail').textContent=canvas.width+' × '+canvas.height;
+   if(first||resized)$('#resolution').textContent=canvas.width+' × '+canvas.height;
    if(first){
     first=false;canvas.hidden=false;$('.waiting').hidden=true;$('main').classList.add('live');
     fetch(base+'/first-frame').catch(()=>{});

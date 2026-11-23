@@ -48,7 +48,7 @@ internal sealed class PcmOutput : IDisposable
         }catch { Dispose(); throw; }
     }
     static void Check(uint result){if(result!=0)throw new IOException("Windows 音频输出错误 "+result);}
-    internal bool Write(byte[] pcm,int length,int gain) {
+    internal bool Write(byte[] pcm,int length,float gain) {
         if(length==0 || length>Capacity || length%4!=0)return false;
         IntPtr h=headers[cursor];
         if(InQueue(cursor)){
@@ -65,7 +65,7 @@ internal sealed class PcmOutput : IDisposable
         }
         if(gain!=100){
             for(int i=0;i<length;i+=2){
-                int v=(short)(pcm[i]|pcm[i+1]<<8)*gain/100;
+                int v=(int)((short)(pcm[i]|pcm[i+1]<<8)*gain/100);
                 pcm[i]=(byte)v;pcm[i+1]=(byte)(v>>8);
             }
         }

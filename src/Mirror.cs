@@ -19,6 +19,22 @@ internal sealed class Mirror : IDisposable
     readonly List<IDisposable> resources=new List<IDisposable>();
     byte[] handshake,sessionKey,audioIv;
     readonly Viewer viewer;
+    internal float SenderVolumeDb { get; private set; }
+    volatile float senderGain=1;
+    float PlaybackVolume { get { return viewer.AudioVolume*senderGain; } }
+    internal bool SetParameters(string parameters){
+        foreach(string line in parameters.Split('\n')){
+            int colon=line.IndexOf(':');
+            if(colon<0 || !line.Substring(0,colon).Trim().Equals("volume",StringComparison.OrdinalIgnoreCase))continue;
+            float db;
+            if(!float.TryParse(line.Substring(colon+1),NumberStyles.Float,CultureInfo.InvariantCulture,out db)
+                || float.IsNaN(db) || float.IsInfinity(db) || db>0 || db< -144)return false;
+            SenderVolumeDb=db;
+            senderGain=db<=-144?0:(float)Math.Pow(10,db/20.0);
+            note("手机音量 "+db.ToString("0.##",CultureInfo.InvariantCulture)+" dB");
+        }
+        return true;
+    }
     string senderName="iOS";
     UdpClient audioData,audioControl;
     int audioEpoch;
@@ -189,7 +205,7 @@ internal sealed class Mirror : IDisposable
                 while(queue.Take(out packet)){
                     if(packet==null){
                         int recovered=decoder==null?0:decoder.Conceal();
-                        if(recovered>0)output.Write(decoder.Samples,recovered,viewer.AudioVolume);
+                        if(recovered>0)output.Write(decoder.Samples,recovered,PlaybackVolume);
                         else if(reported)output.Write(silence,lastSize,0);
                         continue;
                     }
@@ -210,7 +226,7 @@ internal sealed class Mirror : IDisposable
                         failures=0;pcm=decoder.Samples;
                     }
                     lastSize=bytes;
-                    bool submitted=output.Write(pcm,bytes,viewer.AudioVolume);
+                    bool submitted=output.Write(pcm,bytes,PlaybackVolume);
                     viewer.AudioUpdated(output.DelayMs);
                     if(submitted && !reported){
                         for(int i=0;i<bytes;i+=2){

@@ -162,11 +162,13 @@ class Receiver : Form
             if (request.Length != 3) return;
             string cseq = "", proto = request[2] == "RTSP/1.0" ? "RTSP/1.0" : "HTTP/1.1";
             int size = 0;
+            string contentType="";
             foreach (string line in lines) {
                 int colon = line.IndexOf(':');
                 if (colon < 0) continue;
                 string key = line.Substring(0, colon).Trim().ToLowerInvariant(), val = line.Substring(colon + 1).Trim();
                 if (key == "content-length" && (!int.TryParse(val, out size) || size < 0 || size > 1048576)) return;
+                if (key == "content-type") contentType=val.Split(';')[0].Trim();
                 uint seq;
                 if (key == "cseq" && uint.TryParse(val, out seq)) cseq = "CSeq: " + seq + "\r\n";
             }
@@ -222,7 +224,9 @@ class Receiver : Form
             } else if (request[0] == "OPTIONS") extra = "Public: SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER\r\n";
             else if (request[0] == "RECORD") extra = "Audio-Latency: 11025\r\n";
             else if (request[0] == "GET_PARAMETER" && Encoding.ASCII.GetString(payload).Contains("volume")) {
-                body=Encoding.ASCII.GetBytes("volume: 0.000000\r\n"); extra="Content-Type: text/parameters\r\n";
+                body=Encoding.ASCII.GetBytes("volume: "+mirror.SenderVolumeDb.ToString("F6",System.Globalization.CultureInfo.InvariantCulture)+"\r\n"); extra="Content-Type: text/parameters\r\n";
+            } else if(request[0]=="SET_PARAMETER" && (contentType.Length==0 || contentType.Equals("text/parameters",StringComparison.OrdinalIgnoreCase))){
+                if(!mirror.SetParameters(Encoding.ASCII.GetString(payload)))code="400 Bad Request";
             } else if(request[0]=="FLUSH") mirror.FlushAudio();
             else if(request[0]=="TEARDOWN") mirror.Teardown(payload);
             else if (request[0]=="GET_PARAMETER" || request[0]=="SET_PARAMETER" || (request[0]=="POST" && path=="/feedback")) {}
