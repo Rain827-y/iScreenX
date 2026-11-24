@@ -10,6 +10,8 @@ internal sealed class MirrorWindow : Form
 {
     readonly WebView2 browser = new WebView2();
     internal event Action<int> VolumeChanged;
+    internal Func<bool,bool> ControlMode;
+    bool controlEnabled;
     internal event Action<DisplayMode> DisplayChanged;
     readonly Uri page;
     bool fullscreen;
@@ -102,6 +104,12 @@ internal sealed class MirrorWindow : Form
                     return;
                 }
                 switch (message) {
+                    case "control-on": case "control-off":
+                        controlEnabled=ControlMode(message=="control-on");
+                        goto case "control-state";
+                    case "control-state":
+                        core.PostWebMessageAsString(controlEnabled?"control-on":"control-off");
+                        break;
                     case "toggle-pin":
                         TopMost=!TopMost;
                         goto case "pin-state";

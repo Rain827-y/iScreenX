@@ -55,7 +55,7 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <p class="section-end">画质和帧率在下次连接镜像时生效。</p>
 <div class="row">设备声音<button class="switch" role="switch" aria-label="设备声音" aria-checked="true" id="sound"></button></div>
 <div class="row section-end"><label for="volume">音量</label><input type="range" min="0" max="100" value="75" id="volume"><output for="volume">75%</output></div>
-<div class="row">触控反控<button class="switch" role="switch" aria-label="预览触控反控" aria-checked="false" id="control"></button></div><p class="section-end">仅限越狱设备，支持点击和滑动。</p>
+<div class="row">触控反控<button class="switch" role="switch" aria-label="触控反控" aria-checked="false" id="control"></button></div><p class="section-end">开启后，新投屏连接仅使用 IPv4。当前镜像需重新连接。</p>
 <div class="row"><label for="show-info">显示帧率和分辨率</label><button class="switch" role="switch" aria-checked="true" id="show-info"></button></div>
 <div class="row">外观<button id="theme"><svg><use href="#moon"/></svg><span id="theme-label"></span></button></div></dialog>
 <dialog id="record-sheet" aria-labelledby="rec-title"><div class="sheet-head"><h2 id="rec-title">屏幕录制</h2><small>交互预览</small><button class="dismiss" aria-label="关闭录制面板">×</button></div><p>仅录制手机画面和声音。<br>跟随投屏设置 · <span id="format">中等 · 30 fps</span></p><button class="record" aria-pressed="false" id="record">预览录制</button></dialog>
@@ -70,6 +70,10 @@ const rateLabel=$('#frame-rate');
 const pin=$('#pin');
 const host=window.chrome?.webview;
 host?.addEventListener('message',event=>{
+ if(event.data==='control-on'||event.data==='control-off'){
+  $('#control').setAttribute('aria-checked',String(event.data==='control-on'));
+  $('#control').disabled=false;return;
+ }
  if(event.data!=='pinned' && event.data!=='unpinned')return;
  const pinned=event.data==='pinned';
  pin.setAttribute('aria-pressed',String(pinned));
@@ -77,6 +81,7 @@ host?.addEventListener('message',event=>{
 });
 pin.onclick=()=>host?.postMessage('toggle-pin');
 host?.postMessage('pin-state');
+host?.postMessage('control-state');
 for(const handle of document.querySelectorAll('.resize-handle')){
  handle.onpointerdown=e=>{
   if(e.button!==0)return;
@@ -127,6 +132,7 @@ updateFormat();
 for(const toggle of document.querySelectorAll('.switch')){
  toggle.onclick=()=>{
   const enabled=toggle.getAttribute('aria-checked')!=='true';
+  if(toggle.id==='control'){toggle.disabled=true;host?.postMessage(enabled?'control-on':'control-off');return}
   toggle.setAttribute('aria-checked',String(enabled));
   if(toggle.id==='sound'){$('#volume').disabled=!enabled;applyVolume()}
   if(toggle.id==='show-info'){

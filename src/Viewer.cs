@@ -28,13 +28,14 @@ internal sealed class Viewer : IDisposable
         lastAudioTick=Environment.TickCount;
     }
 
-    internal Viewer(string name, Action<string> report, Action close)
+    internal Viewer(string name, Action<string> report, Action close,Func<bool,bool> controlMode)
     {
         receiverName = name; note = report;
         server.Start(8);
         try {
             string url = "http://127.0.0.1:" + ((IPEndPoint)server.LocalEndpoint).Port + route;
             window = new MirrorWindow(new Uri(url));
+            window.ControlMode=controlMode;
             window.VolumeChanged += delegate(int value){AudioVolume=value;};
             window.DisplayChanged += delegate(DisplayMode mode){DesiredDisplay=mode;mode.Save();};
             window.FormClosed += delegate { if (!stopped) close(); };

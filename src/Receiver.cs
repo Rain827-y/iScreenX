@@ -19,6 +19,9 @@ class Receiver : Form
     readonly List<IntPtr> registrations = new List<IntPtr>();
     readonly Semaphore clients = new Semaphore(8, 8);
     TcpListener listener, ipv6Listener;
+    IPAddress ipv6Address;
+    uint lanIndex;
+    bool ipv4Only;
     string device, serviceName;
     byte[] identity, publicKey;
     const string Features = "0x5A7FFFF7";
@@ -30,8 +33,15 @@ class Receiver : Form
     static extern int DNSServiceRegister(out IntPtr service, uint flags, uint iface, string name, string type, string domain, string host, ushort port, ushort length, byte[] txt, IntPtr callback, IntPtr context);
     [DllImport("dnssd.dll")]
     static extern void DNSServiceRefDeallocate(IntPtr service);
+    [DllImport("dnssd.dll")]
+    static extern int DNSServiceCreateConnection(out IntPtr service);
+    delegate void RecordReply(IntPtr service,IntPtr record,uint flags,int error,IntPtr context);
+    static readonly RecordReply AddressReply=delegate{};
+    [DllImport("dnssd.dll",CharSet=CharSet.Ansi)]
+    static extern int DNSServiceRegisterRecord(IntPtr service,out IntPtr record,uint flags,uint index,string name,
+        ushort type,ushort rrclass,ushort length,byte[] data,uint ttl,RecordReply reply,IntPtr context);
 
-    void Register(uint index, string name, string type, int port, params string[] values)
+    void Register(uint index, string host,string name, string type, int port, params string[] values)
     {
         MemoryStream txt = new MemoryStream();
         foreach (string value in values) {
@@ -40,7 +50,7 @@ class Receiver : Form
             txt.Write(data, 0, data.Length);
         }
         IntPtr reference;
-        int err = DNSServiceRegister(out reference, 0, index, name, type, "local.", null,
+        int err = DNSServiceRegister(out reference, 0, index, name, type, "local.", host,
             (ushort)IPAddress.HostToNetworkOrder((short)port), (ushort)txt.Length, txt.ToArray(), IntPtr.Zero, IntPtr.Zero);
         if (err != 0) throw new IOException("Bonjour 注册失败 (" + err + ")");
         registrations.Add(reference);
@@ -49,7 +59,6 @@ class Receiver : Form
     {
         identity = PairKeys.LoadIdentity();
         publicKey = PairKeys.Public(PairKeys.Ed, identity);
-        string pk = "pk=" + BitConverter.ToString(publicKey).Replace("-", "").ToLowerInvariant();
         NetworkInterface chosen = null;
         IPAddress address = null;
         int best = -1;
@@ -78,26 +87,67 @@ class Receiver : Form
             Array.Copy(sha.ComputeHash(publicKey), receiverId, receiverId.Length);
         receiverId[0] = (byte)((receiverId[0] & 0xfc) | 0x02);
         device = BitConverter.ToString(receiverId).Replace("-", ":");
-        uint index = 0; // Bonjour for Windows selects its active multicast interfaces.
+        lanIndex=(uint)chosen.GetIPProperties().GetIPv4Properties().Index;
         serviceName = "iScreenX-" + Environment.MachineName;
         listener = new TcpListener(address, 0);
         listener.Start(8);
-        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
         foreach (UnicastIPAddressInformation ip in chosen.GetIPProperties().UnicastAddresses) {
             if (!ip.Address.IsIPv6LinkLocal) continue;
-            ipv6Listener = new TcpListener(ip.Address, port);
-            ipv6Listener.Start(8);
-            ThreadPool.QueueUserWorkItem(delegate { Accept(ipv6Listener); });
+            ipv6Address=ip.Address;
             break;
         }
-        Register(index, serviceName, "_airplay._tcp", port,
+        StartIPv6();
+        Advertise(false);
+        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); },SetControlMode);
+        ThreadPool.QueueUserWorkItem(delegate { Accept(listener); });
+    }
+    void StartIPv6(){
+        if(ipv6Address==null || ipv6Listener!=null)return;
+        var next=new TcpListener(ipv6Address,((IPEndPoint)listener.LocalEndpoint).Port);
+        next.Start(8);ipv6Listener=next;
+        ThreadPool.QueueUserWorkItem(delegate{Accept(next);});
+    }
+    void ClearAdvertisement(){
+        for(int i=registrations.Count-1;i>=0;i--)DNSServiceRefDeallocate(registrations[i]);
+        registrations.Clear();
+    }
+    void Advertise(bool onlyV4){
+        var endpoint=(IPEndPoint)listener.LocalEndpoint;
+        int port=endpoint.Port;
+        string pk="pk="+BitConverter.ToString(publicKey).Replace("-","").ToLowerInvariant();
+        string host=null;
+        uint index=onlyV4?lanIndex:0;
+        if(onlyV4){
+            host="iscreenx-"+device.Replace(":","").ToLowerInvariant()+"-v4.local.";
+            IntPtr service,record;
+            int err=DNSServiceCreateConnection(out service);
+            if(err!=0)throw new IOException("Bonjour IPv4 连接失败 ("+err+")");
+            registrations.Add(service);
+            err=DNSServiceRegisterRecord(service,out record,0x20,index,host,1,1,4,endpoint.Address.GetAddressBytes(),120,AddressReply,IntPtr.Zero);
+            if(err!=0)throw new IOException("Bonjour IPv4 地址注册失败 ("+err+")");
+        }
+        Register(index,host, serviceName, "_airplay._tcp", port,
             "deviceid=" + device, "features=" + Features, "flags=0x4", "model=" + Model, "srcvers=" + Version, "vv=2", pk);
-        Register(index, device.Replace(":", "") + "@" + serviceName, "_raop._tcp", port,
+        Register(index,host, device.Replace(":", "") + "@" + serviceName, "_raop._tcp", port,
             "txtvers=1", "ch=2", "cn=0,1,2,3", "et=0,3,5", "md=0,1,2", "pw=false", "sr=44100", "ss=16",
             "tp=UDP", "vn=65537", "vs=" + Version, "am=" + Model, "ft=" + Features, "sf=0x4", "vv=2", pk);
-        status.Text = serviceName + "    " + address + ":" + port + "\n等待连接 · 在 iPhone 控制中心打开「AirPlay 镜像」";
-        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); });
-        ThreadPool.QueueUserWorkItem(delegate { Accept(listener); });
+        status.Text=serviceName+"    "+endpoint;
+    }
+    bool SetControlMode(bool enable){
+        if(enable==ipv4Only)return ipv4Only;
+        ClearAdvertisement();
+        try{
+            if(!enable)StartIPv6();
+            Advertise(enable);
+            if(enable && ipv6Listener!=null){ipv6Listener.Stop();ipv6Listener=null;}
+            ipv4Only=enable;
+            Note(enable?"新连接仅监听 IPv4":"已恢复普通监听模式");
+        }catch(Exception ex){
+            Note("监听模式切换失败："+ex.Message);
+            if(ipv4Only && ipv6Listener!=null){ipv6Listener.Stop();ipv6Listener=null;}
+            ClearAdvertisement();Advertise(ipv4Only);
+        }
+        return ipv4Only;
     }
     void Shutdown()
     {
@@ -105,8 +155,7 @@ class Receiver : Form
         if (viewer != null) viewer.Dispose();
         if (listener != null) listener.Stop();
         if (ipv6Listener != null) ipv6Listener.Stop();
-        foreach (IntPtr registration in registrations) DNSServiceRefDeallocate(registration);
-        registrations.Clear();
+        ClearAdvertisement();
     }
     void Note(string s)
     {
