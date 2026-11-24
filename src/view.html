@@ -28,6 +28,18 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 @media(max-width:500px){.tools{gap:0}.divider{margin:0 2px}header{padding:0 5px;gap:5px}.tools button{min-width:26px;padding:0 4px}}
 @media(max-height:370px){.art{display:none}}
 #pin[aria-pressed=true] svg{fill:currentColor;color:var(--blue)}
+.control-fields{display:grid;gap:10px}
+.control-fields input[aria-invalid=true]{--error-border:#c43840;border-color:var(--error-border);box-shadow:inset 0 0 0 1px var(--error-border);outline:none}
+[data-theme=dark] .control-fields input[aria-invalid=true]{--error-border:#ff8087}
+.control-fields input{width:46%;min-width:0;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--well);color:var(--ink);font:inherit;font-variant-numeric:tabular-nums}
+.password-field{width:46%;position:relative}
+.password-field input{width:100%;padding-right:32px}
+.password-field input::-ms-reveal{display:none}
+.password-field button{position:absolute;right:2px;top:2px;width:27px;height:26px;display:none;place-items:center;padding:0;color:var(--muted);border-radius:5px;touch-action:none;user-select:none}
+.password-field:focus-within button{display:grid}
+.password-field button:active{color:var(--blue)}
+.control-actions{display:grid;grid-template-columns:1fr 1.45fr 1fr;gap:6px}
+.control-actions button{padding:6px 4px;border-radius:7px;background:var(--well);color:var(--muted);font-size:12px;cursor:default}
 </style>
 <body><svg style="display:none" aria-hidden="true"><defs>
 
@@ -55,7 +67,12 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <p class="section-end">画质和帧率在下次连接镜像时生效。</p>
 <div class="row">设备声音<button class="switch" role="switch" aria-label="设备声音" aria-checked="true" id="sound"></button></div>
 <div class="row section-end"><label for="volume">音量</label><input type="range" min="0" max="100" value="75" id="volume"><output for="volume">75%</output></div>
-<div class="row">触控反控<button class="switch" role="switch" aria-label="触控反控" aria-checked="false" id="control"></button></div><p class="section-end">开启后，新投屏连接仅使用 IPv4。当前镜像需重新连接。</p>
+<div class="row"><label for="control">反控手机(需越狱)</label><button class="switch" role="switch" aria-checked="false" id="control"></button></div>
+<div class="control-fields section-end">
+ <div class="row"><label for="ssh-port">SSH 端口</label><input id="ssh-port" type="number" min="1" max="65535" step="1" value="2222"></div>
+ <div class="row"><label for="root-password">root 密码</label><div class="password-field"><input id="root-password" type="password" autocomplete="off" spellcheck="false"><button type="button" id="peek-password" aria-label="按住查看密码" title="按住查看密码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+ <div class="control-actions"><button type="button" title="检测手机的 SSH 连接" disabled>连接检测</button><button type="button" disabled>注入反控插件</button><button type="button" disabled>反控检测</button></div>
+</div>
 <div class="row"><label for="show-info">显示帧率和分辨率</label><button class="switch" role="switch" aria-checked="true" id="show-info"></button></div>
 <div class="row">外观<button id="theme"><svg><use href="#moon"/></svg><span id="theme-label"></span></button></div></dialog>
 <dialog id="record-sheet" aria-labelledby="rec-title"><div class="sheet-head"><h2 id="rec-title">屏幕录制</h2><small>交互预览</small><button class="dismiss" aria-label="关闭录制面板">×</button></div><p>仅录制手机画面和声音。<br>跟随投屏设置 · <span id="format">中等 · 30 fps</span></p><button class="record" aria-pressed="false" id="record">预览录制</button></dialog>
@@ -67,6 +84,40 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 
 const $=s=>document.querySelector(s),base=location.pathname,canvas=$('canvas'),ctx=canvas.getContext('2d');
 const rateLabel=$('#frame-rate');
+const password=$('#root-password'),peek=$('#peek-password');
+const sshPort=$('#ssh-port');
+function validateControl(focus){
+ const invalidPort=!sshPort.value || !sshPort.validity.valid;
+ const missingPassword=password.value.length===0;
+ for(const [field,invalid] of [[sshPort,invalidPort],[password,missingPassword]]){
+  if(invalid)field.setAttribute('aria-invalid','true');
+  else field.removeAttribute('aria-invalid');
+ }
+ if(focus && (invalidPort || missingPassword))(invalidPort?sshPort:password).focus();
+ return !invalidPort && !missingPassword;
+}
+for(const field of [sshPort,password])field.addEventListener('input',()=>{
+ if($('.control-fields [aria-invalid=true]'))validateControl(false);
+});
+function maskPassword(){password.type='password'}
+peek.onpointerdown=e=>{
+ if(!e.isPrimary||e.button!==0)return;
+ e.preventDefault();
+ peek.setPointerCapture(e.pointerId);
+ password.type='text';
+};
+peek.onpointermove=e=>{
+ if(peek.hasPointerCapture(e.pointerId) && !peek.contains(document.elementFromPoint(e.clientX,e.clientY)))maskPassword();
+};
+peek.onpointerup=peek.onpointercancel=peek.onlostpointercapture=maskPassword;
+peek.onkeydown=e=>{
+ if(e.key===' '||e.key==='Enter'){e.preventDefault();password.type='text'}
+};
+peek.onkeyup=maskPassword;
+password.parentElement.addEventListener('focusout',maskPassword);
+window.addEventListener('blur',maskPassword);
+document.addEventListener('visibilitychange',maskPassword);
+$('#settings').addEventListener('close',maskPassword);
 const pin=$('#pin');
 const host=window.chrome?.webview;
 host?.addEventListener('message',event=>{
@@ -132,7 +183,10 @@ updateFormat();
 for(const toggle of document.querySelectorAll('.switch')){
  toggle.onclick=()=>{
   const enabled=toggle.getAttribute('aria-checked')!=='true';
-  if(toggle.id==='control'){toggle.disabled=true;host?.postMessage(enabled?'control-on':'control-off');return}
+  if(toggle.id==='control'){
+   if(enabled && !validateControl(true))return;
+   toggle.disabled=true;host?.postMessage(enabled?'control-on':'control-off');return;
+  }
   toggle.setAttribute('aria-checked',String(enabled));
   if(toggle.id==='sound'){$('#volume').disabled=!enabled;applyVolume()}
   if(toggle.id==='show-info'){
