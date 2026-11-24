@@ -29,8 +29,10 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 @media(max-height:370px){.art{display:none}}
 #pin[aria-pressed=true] svg{fill:currentColor;color:var(--blue)}
 .control-fields{display:grid;gap:10px}
-.control-fields input[aria-invalid=true]{--error-border:#c43840;border-color:var(--error-border);box-shadow:inset 0 0 0 1px var(--error-border);outline:none}
-[data-theme=dark] .control-fields input[aria-invalid=true]{--error-border:#ff8087}
+.control-fields{--error-color:#c43840}
+[data-theme=dark] .control-fields{--error-color:#ff8087}
+.control-fields input[aria-invalid=true]{border-color:var(--error-color);box-shadow:inset 0 0 0 1px var(--error-color);outline:none}
+#ssh-result.error{color:var(--error-color)}
 .control-fields input{width:46%;min-width:0;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--well);color:var(--ink);font:inherit;font-variant-numeric:tabular-nums}
 .password-field{width:46%;position:relative}
 .password-field input{width:100%;padding-right:32px}
@@ -40,6 +42,7 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 .password-field button:active{color:var(--blue)}
 .control-actions{display:grid;grid-template-columns:1fr 1.45fr 1fr;gap:6px}
 .control-actions button{padding:6px 4px;border-radius:7px;background:var(--well);color:var(--muted);font-size:12px;cursor:default}
+.control-actions button:enabled{color:var(--blue);cursor:pointer}
 </style>
 <body><svg style="display:none" aria-hidden="true"><defs>
 
@@ -71,7 +74,8 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <div class="control-fields section-end">
  <div class="row"><label for="ssh-port">SSH 端口</label><input id="ssh-port" type="number" min="1" max="65535" step="1" value="2222"></div>
  <div class="row"><label for="root-password">root 密码</label><div class="password-field"><input id="root-password" type="password" autocomplete="off" spellcheck="false"><button type="button" id="peek-password" aria-label="按住查看密码" title="按住查看密码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
- <div class="control-actions"><button type="button" title="检测手机的 SSH 连接" disabled>连接检测</button><button type="button" disabled>注入反控插件</button><button type="button" disabled>反控检测</button></div>
+ <div class="control-actions"><button id="ssh-check" type="button" title="检测手机的 SSH 连接">连接检测</button><button type="button" disabled>注入反控插件</button><button type="button" disabled>反控检测</button></div>
+ <p id="ssh-result" role="status" hidden></p>
 </div>
 <div class="row"><label for="show-info">显示帧率和分辨率</label><button class="switch" role="switch" aria-checked="true" id="show-info"></button></div>
 <div class="row">外观<button id="theme"><svg><use href="#moon"/></svg><span id="theme-label"></span></button></div></dialog>
@@ -120,7 +124,31 @@ document.addEventListener('visibilitychange',maskPassword);
 $('#settings').addEventListener('close',maskPassword);
 const pin=$('#pin');
 const host=window.chrome?.webview;
+const sshCheck=$('#ssh-check'),sshResult=$('#ssh-result');
+let passwordEdited=false;
+password.addEventListener('input',()=>{
+ passwordEdited=true;
+ host?.postMessage('password-save:'+password.value);
+});
+sshCheck.onclick=()=>{
+ sshResult.hidden=true;
+ if(!validateControl(true))return;
+ sshCheck.disabled=true;sshCheck.textContent='检测中…';
+ host.postMessage('ssh-check:'+sshPort.valueAsNumber+':'+password.value);
+};
 host?.addEventListener('message',event=>{
+ if(event.data.startsWith('password-value:')){
+  if(!passwordEdited)password.value=event.data.slice('password-value:'.length);
+  return;
+ }
+ if(event.data.startsWith('password-error:')){
+  sshResult.classList.add('error');sshResult.textContent=event.data.slice('password-error:'.length);sshResult.hidden=false;return;
+ }
+ if(event.data.startsWith('ssh-result:')||event.data.startsWith('ssh-error:')){
+  sshCheck.disabled=false;sshCheck.textContent='连接检测';
+  sshResult.classList.toggle('error',event.data.startsWith('ssh-error:'));
+  sshResult.textContent=event.data.slice(event.data.indexOf(':')+1);sshResult.hidden=false;return;
+ }
  if(event.data==='control-on'||event.data==='control-off'){
   $('#control').setAttribute('aria-checked',String(event.data==='control-on'));
   $('#control').disabled=false;return;
@@ -132,6 +160,7 @@ host?.addEventListener('message',event=>{
 });
 pin.onclick=()=>host?.postMessage('toggle-pin');
 host?.postMessage('pin-state');
+host?.postMessage('password-load');
 host?.postMessage('control-state');
 for(const handle of document.querySelectorAll('.resize-handle')){
  handle.onpointerdown=e=>{

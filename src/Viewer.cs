@@ -19,6 +19,7 @@ internal sealed class Viewer : IDisposable
     byte[] videoConfig;
     bool needsConfig, connectedOnce;
     string session = "", device = "";
+    IPAddress peer;
     volatile bool stopped;
     internal volatile int AudioVolume=75;
     internal volatile DisplayMode DesiredDisplay=DisplayMode.Load();
@@ -36,6 +37,7 @@ internal sealed class Viewer : IDisposable
             string url = "http://127.0.0.1:" + ((IPEndPoint)server.LocalEndpoint).Port + route;
             window = new MirrorWindow(new Uri(url));
             window.ControlMode=controlMode;
+            window.CheckSsh=CheckSsh;
             window.VolumeChanged += delegate(int value){AudioVolume=value;};
             window.DisplayChanged += delegate(DisplayMode mode){DesiredDisplay=mode;mode.Save();};
             window.FormClosed += delegate { if (!stopped) close(); };
@@ -43,11 +45,20 @@ internal sealed class Viewer : IDisposable
             ThreadPool.QueueUserWorkItem(delegate { Listen(); });
         } catch { server.Stop(); throw; }
     }
-    internal string Begin(string name)
+    string CheckSsh(int port,string password)
+    {
+        string id;
+        IPAddress target;
+        lock (gate) { id=session; target=peer; }
+        string result=SshConnectionCheck.Run(target,port,password);
+        lock (gate) return session==id?result:"投屏设备已断开或切换，请重新检测。";
+    }
+    internal string Begin(string name,IPAddress address)
     {
         lock (gate) {
             if (stopped || session.Length != 0) throw new IOException("已有设备正在投屏");
             session = Guid.NewGuid().ToString("N");
+            peer=address;
             videoConfig=null; connectedOnce=false;
             device = name.Replace('\r',' ').Replace('\n',' ');
             return session;
@@ -57,7 +68,7 @@ internal sealed class Viewer : IDisposable
     {
         lock (gate) {
             if (session != id) return;
-            session = ""; device = ""; audioDelay=75;
+            session = ""; device = ""; peer=null; audioDelay=75;
             if (player != null) player.Close();
             player = null; Monitor.PulseAll(gate);
         }

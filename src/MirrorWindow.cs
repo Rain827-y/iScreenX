@@ -11,6 +11,8 @@ internal sealed class MirrorWindow : Form
     readonly WebView2 browser = new WebView2();
     internal event Action<int> VolumeChanged;
     internal Func<bool,bool> ControlMode;
+    internal Func<int,string,string> CheckSsh;
+    bool checkingSsh;
     bool controlEnabled;
     internal event Action<DisplayMode> DisplayChanged;
     readonly Uri page;
@@ -57,6 +59,16 @@ internal sealed class MirrorWindow : Form
         Disposed+=delegate{resizeDrag.Dispose();};
     }
 
+    async void CheckSshAsync(CoreWebView2 core,int port,string password)
+    {
+        checkingSsh=true;
+        string result;
+        try { result=await System.Threading.Tasks.Task.Run(()=>CheckSsh(port,password)); }
+        catch (Exception) { result="SSH 检测失败，请重试。"; }
+        finally { checkingSsh=false; }
+        if(!IsDisposed && !Disposing)core.PostWebMessageAsString((result==SshConnectionCheck.LoginSuccess?"ssh-result:":"ssh-error:")+result);
+    }
+
     protected override async void OnShown(EventArgs e)
     {
         base.OnShown(e);
@@ -75,6 +87,22 @@ internal sealed class MirrorWindow : Form
             core.WebMessageReceived += delegate(object sender, CoreWebView2WebMessageReceivedEventArgs args) {
                 if (args.Source != page.AbsoluteUri) return;
                 string message=args.TryGetWebMessageAsString();
+                if(message=="password-load" || message.StartsWith("password-save:",StringComparison.Ordinal)){
+                    try {
+                        if(message=="password-load")core.PostWebMessageAsString("password-value:"+SshPasswordStore.Load());
+                        else SshPasswordStore.Save(message.Substring("password-save:".Length));
+                    } catch(Exception) {
+                        core.PostWebMessageAsString(message=="password-load"?"password-error:无法读取已保存的密码，请重新填写。":"password-error:密码保存失败，请检查当前账户的存储权限。");
+                    }
+                    return;
+                }
+                if(message.StartsWith("ssh-check:",StringComparison.Ordinal)){
+                    string[] fields=message.Split(new[]{':'},3);
+                    int port;
+                    if(fields.Length==3 && Int32.TryParse(fields[1],out port) && !checkingSsh)
+                        CheckSshAsync(core,port,fields[2]);
+                    return;
+                }
                 if(message.StartsWith("geometry:",StringComparison.Ordinal)){
                     string[] parts=message.Substring(9).Split('/');
                     int width,height,bar,viewport;

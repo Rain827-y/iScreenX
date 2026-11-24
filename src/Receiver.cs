@@ -301,6 +301,9 @@ class Receiver : Form
         Shown += delegate { try { Start(); Hide(); } catch (Exception e) { MessageBox.Show(e.Message, "iScreenX"); Close(); } };
         FormClosing += delegate { Shutdown(); };
     }
-    [STAThread] static void Main() { Application.EnableVisualStyles(); Application.Run(new Receiver()); }
+    [STAThread] static void Main(string[] args) {
+        if (SshConnectionCheck.AnswerPasswordPrompt(args)) return;
+        Application.EnableVisualStyles(); Application.Run(new Receiver());
+    }
 }
 

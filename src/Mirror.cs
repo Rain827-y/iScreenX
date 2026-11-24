@@ -244,7 +244,7 @@ internal sealed class Mirror : IDisposable
     }
     void Video(TcpClient client,byte[] key,byte[] counter){
         note("已连接视频通道");
-        string id=viewer.Begin(senderName);
+        string id=viewer.Begin(senderName,peer);
         try {
             using(var cipher=new VideoCipher(key,counter)){
                 byte[] h=new byte[128];var s=client.GetStream();

@@ -19,5 +19,5 @@ Copy-Item $assemblies dist -Force
 Copy-Item "$sdk/runtimes/win-x64/native/WebView2Loader.dll" dist -Force
 Copy-Item "$sdk/LICENSE.txt" dist/WebView2-LICENSE.txt -Force
 Copy-Item "$sdk/NOTICE.txt" dist/WebView2-NOTICE.txt -Force
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /platform:x64 /target:winexe /optimize+ /out:dist\iScreenX.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll "/reference:$($assemblies -join ',')" /resource:src\view.html,view.html src\*.cs
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /platform:x64 /target:winexe /optimize+ /out:dist\iScreenX.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll "/reference:$($assemblies -join ',')" /resource:src\view.html,view.html src\*.cs src\RemoteControl\*.cs
 exit $LASTEXITCODE
