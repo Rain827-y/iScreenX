@@ -243,21 +243,25 @@ async function play(id){
   return origin+stamp+playoutDelay;
  }
  function pumpDecoder(){
+  clearTimeout(decodeTimer);
   decodeTimer=0;
   try{
    while(compressed.length){
     const next=compressed[0],wait=next.due-performance.now()-65;
-    if(wait>1 || decoder.decodeQueueSize>=6){
-     decodeTimer=setTimeout(pumpDecoder,wait>1?Math.ceil(wait):3);return;
+    if(decoder.decodeQueueSize>=6)return; // The dequeue event wakes the pump.
+    if(!document.hidden && wait>1 && compressed.length<96){
+     decodeTimer=setTimeout(pumpDecoder,Math.ceil(wait));return;
     }
     compressed.shift();queuedBytes-=next.data.length;
     timing.set(next.timestamp,next);
+    if(timing.size>128)timing.delete(timing.keys().next().value);
     decoder.decode(new EncodedVideoChunk({type:next.type,timestamp:next.timestamp,data:next.data}));
     next.data=null;
     maxQueue=Math.max(maxQueue,decoder.decodeQueueSize);
    }
   }catch(e){failure=e;reader.cancel()}
  }
+ decoder.ondequeue=()=>{if(compressed.length && !decodeTimer)pumpDecoder()};
  function resetDecoder(){
   clearTimeout(decodeTimer);decodeTimer=queuedBytes=0;compressed.length=0;
   decoder.reset();clearFrames();timing.clear();needKey=true;
@@ -289,6 +293,8 @@ async function play(id){
    const data=await read(n);if(!data)break;
    if(type===1){
     if(data.length<7)continue;
+    const previous=decoderConfig?.description;
+    if(previous && previous.length===data.length && data.every((byte,i)=>byte===previous[i]))continue;
     if(decoderConfig)resetDecoder();
     lengthSize=(data[4]&3)+1;
     decoderConfig={codec:'avc1.'+Array.from(data.slice(1,4),v=>v.toString(16).padStart(2,'0')).join(''),description:data,optimizeForLatency:true};
@@ -303,19 +309,21 @@ async function play(id){
     }
     const timestamp=Math.trunc(h.getFloat64(5,true)),arrival=h.getFloat64(13,true)-performance.timeOrigin;
     const source=h.getFloat64(21,true)-performance.timeOrigin;
-    if(document.hidden || compressed.length>=96 || queuedBytes+data.length>32*1024*1024 || timing.size>=64){
-     resetDecoder();
-     if(document.hidden)continue;
-    }
+    // Only abandon a reference chain when its replacement keyframe is in hand.
+    // Otherwise drain it before reading more compressed data.
+    const full=()=>compressed.length>=96 || queuedBytes+data.length>32*1024*1024;
+    if(key && full())resetDecoder();
+    while(full() && !failure){pumpDecoder();if(full())await delay(4)}
+    if(failure)throw failure;
     if(needKey&&!key)continue;
     if(decoder.state!=='configured')decoder.configure(decoderConfig);
     needKey=false;
     compressed.push({type:key?'key':'delta',timestamp,data,arrival,source,due:presentationTime(timestamp,arrival)});
     queuedBytes+=data.length;
-    if(!decodeTimer)pumpDecoder();
+    if(!decodeTimer || document.hidden)pumpDecoder();
    }
   }
- }finally{clearTimeout(decodeTimer);clearInterval(delayPoll);clearInterval(report);cancelAnimationFrame(animation);clearFrames();clearInterval(meter);rateLabel.hidden=true;if(decoder.state!=='closed')decoder.close();await reader.cancel().catch(()=>{})}
+ }finally{decoder.ondequeue=null;clearTimeout(decodeTimer);clearInterval(delayPoll);clearInterval(report);cancelAnimationFrame(animation);clearFrames();clearInterval(meter);rateLabel.hidden=true;if(decoder.state!=='closed')decoder.close();await reader.cancel().catch(()=>{})}
 }
 (async()=>{
  for(;;){
