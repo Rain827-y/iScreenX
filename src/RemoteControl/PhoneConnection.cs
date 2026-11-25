@@ -149,16 +149,24 @@ internal sealed class PhoneConnection : IDisposable
                     if(!streaming)ReportUnavailable(process);
                 }
             } else if(command!=null) {
-                if(command=="install" && !InstallPackage(process)) {
-                    SetState(process,"service-error:iTouch 安装失败，请检查手机上的 dpkg 和服务状态。");
-                    continue;
+                bool install=command=="install";
+                if(install) {
+                    string failure=InstallPackage(process);
+                    if(failure!=null) {
+                        SetState(process,"service-error:"+failure);
+                        continue;
+                    }
+                    SetState(process,"working:iTouch 已安装，正在启动反控…");
                 }
-                int attempts=command=="install"?5:1;
+                int attempts=install?5:1;
                 for(int i=0;i<attempts && !streaming;i++) {
                     if(i>0)Thread.Sleep(250);
                     streaming=OpenTouchStream(process);
                 }
-                if(!streaming)ReportUnavailable(process);
+                if(install)SetState(process,streaming
+                    ?"ready:iTouch 安装成功，反控已就绪。"
+                    :"service-error:iTouch 已安装，服务未就绪。请重试反控检测。");
+                else if(!streaming)ReportUnavailable(process);
             }
         }
     }
@@ -231,21 +239,28 @@ internal sealed class PhoneConnection : IDisposable
         return reply.Result;
     }
 
-    static bool InstallPackage(Process process)
+    static string InstallPackage(Process process)
     {
         using(var package=typeof(PhoneConnection).Assembly.GetManifestResourceStream("itouch.deb")){
-            if(package==null)return false;
+            if(package==null)return "安装包缺失，请重新构建或下载 iScreenX。";
             var input=process.StandardInput;
-            input.WriteLine("umask 077; pkg=$(mktemp /var/tmp/itouch.XXXXXX) || exit 1; trap 'rm -f \"$pkg\"' EXIT");
+            // Isolate package upload and cleanup from the interactive SSH shell.
+            input.WriteLine("( umask 077; pkg=$(mktemp /var/tmp/itouch.XXXXXX) || exit 2; trap 'rm -f \"$pkg\"' EXIT");
             byte[] buffer=new byte[512];
             int count;
             while((count=package.Read(buffer,0,buffer.Length))>0) {
                 var octal=new StringBuilder(count*5);
                 for(int i=0;i<count;i++)octal.Append("\\0").Append(Convert.ToString(buffer[i],8).PadLeft(3,'0'));
-                input.WriteLine("printf '%b' '"+octal+"' >> \"$pkg\" || exit 1");
+                input.WriteLine("printf '%b' '"+octal+"' >> \"$pkg\" || exit 2");
             }
-            input.WriteLine("if dpkg -i \"$pkg\" >&2; then echo ISCREENX_INSTALLED; else echo ISCREENX_INSTALL_FAILED; fi; rm -f \"$pkg\"; trap - EXIT");
-            return ReadLine(process,30000,"等待 iTouch 安装结果超时，请检查手机服务。")=="ISCREENX_INSTALLED";
+            input.WriteLine("test \"$(wc -c < \"$pkg\")\" -eq "+package.Length.ToString(CultureInfo.InvariantCulture)+" || exit 2");
+            input.WriteLine("dpkg -i \"$pkg\" >&2 || exit 3 ); printf 'ISCREENX_INSTALL:%s\\n' \"$?\"");
+            switch(ReadLine(process,30000,"等待 iTouch 安装结果超时，请检查手机服务。")) {
+                case "ISCREENX_INSTALL:0": return null;
+                case "ISCREENX_INSTALL:2": return "无法写入 iTouch 安装包，请检查手机存储。";
+                case "ISCREENX_INSTALL:3": return "iTouch 安装失败，请检查手机上的 dpkg 状态。";
+                default: return "未收到 iTouch 安装结果，请重试反控检测。";
+            }
         }
     }
 
