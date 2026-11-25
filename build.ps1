@@ -1,9 +1,12 @@
+param(
+    [string]$Zig = $(if (Test-Path "$PSScriptRoot/tmp/toolchain/ziglang/zig.exe") { "$PSScriptRoot/tmp/toolchain/ziglang/zig.exe" } else { 'zig' }),
+    [string]$OutputDirectory = "$PSScriptRoot/dist"
+)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-New-Item -ItemType Directory -Path dist,tmp -Force | Out-Null
-if (!(Test-Path 'dist/iscreenx-aac.dll') -or
-    (Get-Item 'src/native/audio-decoder.cpp').LastWriteTimeUtc -gt (Get-Item 'dist/iscreenx-aac.dll').LastWriteTimeUtc) {
-    & "$PSScriptRoot/build-audio.ps1"
+New-Item -ItemType Directory -Path $OutputDirectory,tmp -Force | Out-Null
+foreach ($script in 'build-native.ps1','build-audio.ps1') {
+    & "$PSScriptRoot/$script" -Zig $Zig -OutputDirectory $OutputDirectory
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 $version = '1.0.2903.40'
@@ -15,9 +18,9 @@ if (!(Test-Path "$sdk/lib/net462/Microsoft.Web.WebView2.WinForms.dll")) {
     Expand-Archive $archive $sdk -Force
 }
 $assemblies = @("$sdk/lib/net462/Microsoft.Web.WebView2.Core.dll", "$sdk/lib/net462/Microsoft.Web.WebView2.WinForms.dll")
-Copy-Item $assemblies dist -Force
-Copy-Item "$sdk/runtimes/win-x64/native/WebView2Loader.dll" dist -Force
-Copy-Item "$sdk/LICENSE.txt" dist/WebView2-LICENSE.txt -Force
-Copy-Item "$sdk/NOTICE.txt" dist/WebView2-NOTICE.txt -Force
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /platform:x64 /target:winexe /optimize+ /out:dist\iScreenX.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll "/reference:$($assemblies -join ',')" /resource:src\view.html,view.html src\*.cs src\RemoteControl\*.cs
+Copy-Item $assemblies $OutputDirectory -Force
+Copy-Item "$sdk/runtimes/win-x64/native/WebView2Loader.dll" $OutputDirectory -Force
+Copy-Item "$sdk/LICENSE.txt" "$OutputDirectory/WebView2-LICENSE.txt" -Force
+Copy-Item "$sdk/NOTICE.txt" "$OutputDirectory/WebView2-NOTICE.txt" -Force
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /platform:x64 /target:winexe /optimize+ "/out:$OutputDirectory/iScreenX.exe" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll "/reference:$($assemblies -join ',')" /resource:src\view.html,view.html src\*.cs src\RemoteControl\*.cs
 exit $LASTEXITCODE

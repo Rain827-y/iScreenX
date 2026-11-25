@@ -1,0 +1,6 @@
+[submodule "3rdparty/fdk-aac"]
+	path = 3rdparty/fdk-aac
+	url = https://github.com/mstorsjo/fdk-aac.git
+[submodule "3rdparty/UxPlay"]
+	path = 3rdparty/UxPlay
+	url = https://github.com/FDH2/UxPlay.git
