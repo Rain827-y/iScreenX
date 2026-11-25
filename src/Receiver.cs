@@ -59,8 +59,26 @@ class Receiver : Form
     {
         identity = PairKeys.LoadIdentity();
         publicKey = PairKeys.Public(PairKeys.Ed, identity);
+        // Identify this receiver independently of other AirPlay apps on the same adapter.
+        byte[] receiverId = new byte[6];
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+            Array.Copy(sha.ComputeHash(publicKey), receiverId, receiverId.Length);
+        receiverId[0] = (byte)((receiverId[0] & 0xfc) | 0x02);
+        device = BitConverter.ToString(receiverId).Replace("-", ":");
+        serviceName = "iScreenX-" + Environment.MachineName;
+        UpdateNetwork();
+        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); },SetControlMode);
+        networkRefresh.Tick+=delegate {
+            try { UpdateNetwork(); }
+            catch(Exception ex){ if(lastNetworkError!=ex.Message)Note(ex.Message); lastNetworkError=ex.Message; }
+        };
+        networkRefresh.Start();
+    }
+    readonly System.Windows.Forms.Timer networkRefresh=new System.Windows.Forms.Timer{Interval=4000};
+    string lastNetworkError;
+    static NetworkInterface SelectNetwork(out IPAddress address){
         NetworkInterface chosen = null;
-        IPAddress address = null;
+        address = null;
         int best = -1;
         foreach (NetworkInterface net in NetworkInterface.GetAllNetworkInterfaces()) {
             if (net.OperationalStatus != OperationalStatus.Up || !net.SupportsMulticast ||
@@ -81,25 +99,31 @@ class Receiver : Form
         }
         if (chosen == null)
             throw new IOException("未找到可用的局域网网卡。");
-        // Identify this receiver independently of other AirPlay apps on the same adapter.
-        byte[] receiverId = new byte[6];
-        using (var sha = System.Security.Cryptography.SHA256.Create())
-            Array.Copy(sha.ComputeHash(publicKey), receiverId, receiverId.Length);
-        receiverId[0] = (byte)((receiverId[0] & 0xfc) | 0x02);
-        device = BitConverter.ToString(receiverId).Replace("-", ":");
-        lanIndex=(uint)chosen.GetIPProperties().GetIPv4Properties().Index;
-        serviceName = "iScreenX-" + Environment.MachineName;
-        listener = new TcpListener(address, 0);
-        listener.Start(8);
-        foreach (UnicastIPAddressInformation ip in chosen.GetIPProperties().UnicastAddresses) {
-            if (!ip.Address.IsIPv6LinkLocal) continue;
-            ipv6Address=ip.Address;
-            break;
+        return chosen;
+    }
+    void UpdateNetwork(){
+        IPAddress address;
+        var chosen=SelectNetwork(out address);
+        uint index=(uint)chosen.GetIPProperties().GetIPv4Properties().Index;
+        IPAddress nextV6=null;
+        foreach(var ip in chosen.GetIPProperties().UnicastAddresses){
+            if(ip.Address.IsIPv6LinkLocal){nextV6=ip.Address;break;}
         }
-        StartIPv6();
-        Advertise(false);
-        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); },SetControlMode);
-        ThreadPool.QueueUserWorkItem(delegate { Accept(listener); });
+        bool sameV4=listener!=null && address.Equals(((IPEndPoint)listener.LocalEndpoint).Address);
+        if(sameV4 && index==lanIndex && Object.Equals(nextV6,ipv6Address) && registrations.Count>0 && lastNetworkError==null)return;
+        TcpListener next=listener;
+        if(!sameV4){
+            next=new TcpListener(address,0);
+            next.Start(8);
+        }
+        ClearAdvertisement();
+        if(ipv6Listener!=null){ipv6Listener.Stop();ipv6Listener=null;}
+        if(!sameV4 && listener!=null)listener.Stop();
+        listener=next;lanIndex=index;ipv6Address=nextV6;
+        if(!sameV4)ThreadPool.QueueUserWorkItem(delegate{Accept(next);});
+        if(!ipv4Only)StartIPv6();
+        Advertise(ipv4Only);
+        lastNetworkError=null;
     }
     void StartIPv6(){
         if(ipv6Address==null || ipv6Listener!=null)return;
@@ -116,7 +140,7 @@ class Receiver : Form
         int port=endpoint.Port;
         string pk="pk="+BitConverter.ToString(publicKey).Replace("-","").ToLowerInvariant();
         string host=null;
-        uint index=onlyV4?lanIndex:0;
+        uint index=lanIndex;
         if(onlyV4){
             host="iscreenx-"+device.Replace(":","").ToLowerInvariant()+"-v4.local.";
             IntPtr service,record;
@@ -152,6 +176,7 @@ class Receiver : Form
     void Shutdown()
     {
         closing = true;
+        networkRefresh.Dispose();
         if (viewer != null) viewer.Dispose();
         if (listener != null) listener.Stop();
         if (ipv6Listener != null) ipv6Listener.Stop();
