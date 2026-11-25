@@ -105,6 +105,17 @@ internal sealed class MirrorWindow : Form
                         Phone.Touch(fields[0],direction,x,y);
                     return;
                 }
+                if(message.StartsWith("scroll:",StringComparison.Ordinal)){
+                    if(!controlEnabled)return;
+                    var fields=message.Substring(7).Split(' ');
+                    int direction,steps,interval;
+                    double x,y;
+                    if(fields.Length==5 && Int32.TryParse(fields[0],out direction) && Int32.TryParse(fields[1],out steps)
+                        && Double.TryParse(fields[2],NumberStyles.Float,CultureInfo.InvariantCulture,out x)
+                        && Double.TryParse(fields[3],NumberStyles.Float,CultureInfo.InvariantCulture,out y)
+                        && Int32.TryParse(fields[4],out interval))Phone.Scroll(direction,steps,x,y,interval);
+                    return;
+                }
                 if(message.StartsWith("geometry:",StringComparison.Ordinal)){
                     string[] parts=message.Substring(9).Split('/');
                     int width,height,bar,viewport;

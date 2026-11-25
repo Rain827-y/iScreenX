@@ -14,6 +14,9 @@ internal sealed class PhoneConnection : IDisposable
     readonly object gate = new object();
     Process active;
     readonly LinkedList<string> commands = new LinkedList<string>();
+    LinkedListNode<string> pendingScroll;
+    readonly Stopwatch scrollAge=new Stopwatch();
+    const int ScrollMaxAgeMs=140;
     bool pressed;
     int orientation;
     string state = "idle:";
@@ -125,8 +128,13 @@ internal sealed class PhoneConnection : IDisposable
             lock(gate) {
                 if(active==process && commands.Count==0)Monitor.Wait(gate,250);
                 if(active!=process || process.HasExited)return;
-                command=commands.First==null?null:commands.First.Value;
-                if(command!=null)commands.RemoveFirst();
+                var next=commands.First;
+                command=next==null?null:next.Value;
+                if(next!=null && next==pendingScroll) {
+                    pendingScroll=null;
+                    if(scrollAge.ElapsedMilliseconds>ScrollMaxAgeMs)command=null;
+                }
+                if(next!=null)commands.RemoveFirst();
             }
             if(streaming) {
                 if(command==null && keepalive.ElapsedMilliseconds<750)continue;
@@ -142,7 +150,7 @@ internal sealed class PhoneConnection : IDisposable
                         throw new IOException("Unexpected iTouch reply");
                     lock(gate) {
                         if(active!=process)return;
-                        commands.Clear();pressed=false;orientation=0;
+                        commands.Clear();pendingScroll=null;pressed=false;orientation=0;
                         state="working:正在恢复 iTouch…";
                     }
                     streaming=OpenTouchStream(process);
@@ -177,7 +185,7 @@ internal sealed class PhoneConnection : IDisposable
         // SpringBoard can delay its reply while the phone is locked or rotating.
         // Keep the orientation query independent of the touch stream handshake.
         input.WriteLine("version=$(dpkg-query -W -f='${Version}' com.itouch.remote 2>/dev/null); " +
-            "if dpkg --compare-versions \"$version\" ge 1.1.1; then " +
+            "if dpkg --compare-versions \"$version\" ge 1.3.2; then " +
             "( last=; while :; do current=$(/usr/local/bin/itouch orientation 2>/dev/null); " +
             "if [ \"$current\" != \"$last\" ]; then printf 'ISCREENX_DIRECTION:%s\\n' \"$current\"; last=$current; fi; " +
             "sleep 0.25 2>/dev/null || sleep 1; done ) </dev/null & " +
@@ -208,6 +216,7 @@ internal sealed class PhoneConnection : IDisposable
                 orientation=next;
                 if(state.StartsWith("ready:",StringComparison.Ordinal)) {
                     commands.Clear();
+                    pendingScroll=null;
                     commands.AddLast("up");
                     pressed=false;
                 }
@@ -229,7 +238,7 @@ internal sealed class PhoneConnection : IDisposable
 
     void ReportUnavailable(Process process)
     {
-        SetState(process,"service-error:请安装 iTouch 1.1.1，或解锁手机后重试反控检测。");
+        SetState(process,"service-error:请安装 iTouch 1.3.2 或更新版本。已安装时，请解锁手机并重试反控检测。");
     }
 
     static string ReadLine(Process process,int timeout,string timeoutMessage)
@@ -289,6 +298,10 @@ internal sealed class PhoneConnection : IDisposable
                 if(orientation==0 || orientation!=expectedOrientation || (action!="down" && action!="move"))return;
                 bool down=action=="down";
                 if(down==pressed || !(x>=0 && x<=1 && y>=0 && y<=1))return;
+                if(down && pendingScroll!=null) {
+                    commands.Remove(pendingScroll);
+                    pendingScroll=null;
+                }
                 string line=String.Format(CultureInfo.InvariantCulture,"{0} {1:F6} {2:F6}",action,x,y);
                 if(!down && commands.Last!=null && commands.Last.Value.StartsWith("move ",StringComparison.Ordinal))
                     commands.Last.Value=line;
@@ -297,6 +310,31 @@ internal sealed class PhoneConnection : IDisposable
                 else return;
                 pressed=true;
             }
+            Monitor.Pulse(gate);
+        }
+    }
+
+    internal void Scroll(int expectedOrientation,int steps,double x,double y,int interval)
+    {
+        const string command="scroll-drag";
+        const int maxSteps=8;
+        lock(gate) {
+            if(!state.StartsWith("ready:",StringComparison.Ordinal) || pressed || orientation==0 || orientation!=expectedOrientation
+                || steps==0 || steps<-maxSteps || steps>maxSteps || interval<20 || interval>200 || !(x>=0 && x<=1 && y>=0 && y<=1))return;
+            if(pendingScroll!=null) {
+                string[] previous=pendingScroll.Value.Split(' ');
+                int count=Int32.Parse(previous[1],CultureInfo.InvariantCulture);
+                if(scrollAge.ElapsedMilliseconds<=ScrollMaxAgeMs && Math.Sign(count)==Math.Sign(steps)
+                    && Math.Abs(Double.Parse(previous[2],CultureInfo.InvariantCulture)-x)<0.02
+                    && Math.Abs(Double.Parse(previous[3],CultureInfo.InvariantCulture)-y)<0.02) {
+                    steps=Math.Max(-maxSteps,Math.Min(maxSteps,count+steps));
+                }
+                commands.Remove(pendingScroll);
+                pendingScroll=null;
+            }
+            if(commands.Count>=32)return;
+            pendingScroll=commands.AddLast(String.Format(CultureInfo.InvariantCulture,"{0} {1} {2:F6} {3:F6} {4}",command,steps,x,y,interval));
+            scrollAge.Restart();
             Monitor.Pulse(gate);
         }
     }
@@ -328,7 +366,7 @@ internal sealed class PhoneConnection : IDisposable
     void Reset()
     {
         active=null;state="idle:";
-        commands.Clear();pressed=false;orientation=0;
+        commands.Clear();pendingScroll=null;pressed=false;orientation=0;
         Monitor.Pulse(gate);
     }
 

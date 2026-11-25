@@ -4,7 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-$iTouchPackage = '3rdparty/iTouch/dist/com.itouch.remote_1.1.1_iphoneos-arm.deb'
+$iTouchPackage = '3rdparty/iTouch/dist/com.itouch.remote_1.3.2_iphoneos-arm.deb'
 if (!(Test-Path -LiteralPath $iTouchPackage -PathType Leaf)) {
     throw 'Initialize iTouch with git submodule update --init'
 }
