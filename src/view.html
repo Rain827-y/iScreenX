@@ -9,6 +9,7 @@ header{display:flex;align-items:center;gap:9px;padding:0 10px 0 15px;background:
 main{position:relative;min-height:0;overflow:hidden;display:grid;place-items:center;background:var(--paper)}main.live{background:#000}.waiting{display:grid;justify-items:center;align-content:center;max-width:100%;text-align:center;padding:20px;gap:clamp(9px,min(1.55vw,2.35vh),20px)}.art{font-size:clamp(16px,min(2.7vw,4.3vh),34px);position:relative;width:8em;height:5.5em;margin:0 auto 0.8125em}.monitor,.phone{position:absolute;border:0.125em solid #868d99;border-radius:0.5625em;background:var(--paper);padding:0.25em}.monitor{width:6.5625em;height:4.1875em;left:0.0625em;top:0.1875em;box-shadow:0 0.25em 0.5em var(--shadow)}.phone{width:2.25em;height:3.9375em;right:0.25em;bottom:0.0625em;border-radius:0.5em;padding:0.1875em;box-shadow:-0.1875em 0.125em 0.4375em var(--shadow)}.art i{display:block;width:100%;height:100%;border-radius:0.25em;background:radial-gradient(ellipse 97% 106% at 88% -15%,#cedcf5 55%,transparent 57%),radial-gradient(ellipse 98% 132% at 5% 120%,#869ac9 48%,transparent 50%),linear-gradient(135deg,#c8cef0,#a5b7d9 65%,#8498bf)}.stand{position:absolute;top:4.3125em;left:2.875em;width:0.875em;height:0.5625em;background:#9096a1}.stand:after{content:'';position:absolute;width:2.1875em;left:-0.6875em;bottom:-0.125em;height:0.1875em;background:#9298a4;border-radius:0.25em}
 h1,h2,p{margin:0}h1{font-size:clamp(22px,min(4vw,6.5vh),52px);letter-spacing:-1px;font-weight:600}.waiting p{font-size:clamp(13px,min(1.8vw,2.9vh),22px);color:var(--muted)}.target{display:inline-flex;align-items:center;gap:7px;background:var(--bar);border:1px solid var(--line);border-radius:99px;padding:.48em 1.05em;margin-top:.3em;font-size:clamp(12px,min(1.6vw,2.6vh),20px);max-width:100%}.target #name{min-width:0;overflow-wrap:anywhere}.target svg{width:1.15em;height:1.15em;flex:none;color:var(--blue)}#help{color:var(--blue);font-size:clamp(12px,min(1.55vw,2.5vh),18px);padding:.55em .85em}
 canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+canvas.touch-ready{cursor:crosshair;touch-action:none}
 .resize-handle{position:fixed;width:12px;height:12px;z-index:3;touch-action:none;app-region:no-drag;-webkit-app-region:no-drag}
 [data-edge="1"],[data-edge="2"]{top:12px;bottom:12px;height:auto;width:8px;cursor:ew-resize}
 [data-edge="1"]{left:0}[data-edge="2"]{right:0}
@@ -74,7 +75,7 @@ dialog{margin:0;position:fixed;inset:calc(var(--toolbar-height) + 4px) 9px auto 
 <div class="control-fields section-end">
  <div class="row"><label for="ssh-port">SSH 端口</label><input id="ssh-port" type="number" min="1" max="65535" step="1" value="2222"></div>
  <div class="row"><label for="root-password">root 密码</label><div class="password-field"><input id="root-password" type="password" autocomplete="off" spellcheck="false"><button type="button" id="peek-password" aria-label="按住查看密码" title="按住查看密码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
- <div class="control-actions"><button id="ssh-check" type="button" title="检测手机的 SSH 连接">连接检测</button><button type="button" disabled>注入反控插件</button><button type="button" disabled>反控检测</button></div>
+ <div class="control-actions"><button id="ssh-check" type="button">连接手机</button><button id="itouch-install" type="button" disabled>安装反控插件</button><button id="itouch-check" type="button" disabled>反控检测</button></div>
  <p id="ssh-result" role="status" hidden></p>
 </div>
 <div class="row"><label for="show-info">显示帧率和分辨率</label><button class="switch" role="switch" aria-checked="true" id="show-info"></button></div>
@@ -125,16 +126,77 @@ $('#settings').addEventListener('close',maskPassword);
 const pin=$('#pin');
 const host=window.chrome?.webview;
 const sshCheck=$('#ssh-check'),sshResult=$('#ssh-result');
-let passwordEdited=false;
+const installTouch=$('#itouch-install'),checkTouch=$('#itouch-check');
+let passwordEdited=false,sshState='',sshPoll;
+let controlEnabled=false,touchPointer=null,lastTouch=null,orientation=0;
+function endTouch(){
+ if(touchPointer===null)return;
+ const pointer=touchPointer;touchPointer=null;lastTouch=null;
+ host?.postMessage('touch:up');
+ if(canvas.hasPointerCapture(pointer))canvas.releasePointerCapture(pointer);
+}
+function updateTouch(){
+ const landscape=!canvas.hidden && canvas.width>canvas.height;
+ const ready=controlEnabled && sshState==='ready' && !canvas.hidden && orientation>0 && landscape===(orientation>=3);
+ canvas.classList.toggle('touch-ready',ready);
+ if(!ready)endTouch();
+}
+function touchPoint(e,clamp){
+ const box=canvas.getBoundingClientRect(),cover=getComputedStyle(canvas).objectFit==='cover';
+ const scale=Math[cover?'max':'min'](box.width/canvas.width,box.height/canvas.height);
+ if(!(scale>0))return null;
+ const width=canvas.width*scale,height=canvas.height*scale;
+ const x=(e.clientX-box.left-(box.width-width)/2)/width;
+ const y=(e.clientY-box.top-(box.height-height)/2)/height;
+ if(!clamp && (x<0 || x>1 || y<0 || y>1))return null;
+ const nx=Math.max(0,Math.min(1,x)),ny=Math.max(0,Math.min(1,y));
+ return [[nx,ny],[1-nx,1-ny],[1-ny,nx],[ny,1-nx]][orientation-1];
+}
+function sendTouch(action,point){
+ const coordinates=point.map(n=>n.toFixed(6)).join(' ');
+ if(action==='move' && lastTouch===coordinates)return;
+ lastTouch=coordinates;
+ host?.postMessage('touch:'+action+' '+orientation+' '+coordinates);
+}
+canvas.addEventListener('pointerdown',e=>{
+ if(e.button!==0 || touchPointer!==null || !canvas.classList.contains('touch-ready'))return;
+ const point=touchPoint(e,false);
+ if(!point)return;
+ e.preventDefault();
+ canvas.setPointerCapture(e.pointerId);touchPointer=e.pointerId;sendTouch('down',point);
+});
+canvas.addEventListener('pointermove',e=>{
+ if(e.pointerId!==touchPointer)return;
+ const point=touchPoint(e,true);
+ if(point)sendTouch('move',point);
+});
+canvas.addEventListener('pointerup',e=>{
+ if(e.pointerId!==touchPointer)return;
+ const point=touchPoint(e,true);
+ if(point)sendTouch('move',point);
+ endTouch();
+});
+for(const name of ['pointercancel','lostpointercapture'])canvas.addEventListener(name,e=>{
+ if(e.pointerId===touchPointer)endTouch();
+});
+window.addEventListener('blur',endTouch);
+document.addEventListener('fullscreenchange',endTouch);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)endTouch()});
+installTouch.onclick=()=>{installTouch.disabled=true;checkTouch.disabled=true;host?.postMessage('itouch-install')};
+checkTouch.onclick=()=>{checkTouch.disabled=true;host?.postMessage('itouch-check')};
 password.addEventListener('input',()=>{
  passwordEdited=true;
  host?.postMessage('password-save:'+password.value);
 });
 sshCheck.onclick=()=>{
+ if(sshState && sshState!=='idle' && sshState!=='error'){
+  endTouch();
+  sshCheck.disabled=true;host.postMessage('ssh-disconnect');return;
+ }
  sshResult.hidden=true;
  if(!validateControl(true))return;
- sshCheck.disabled=true;sshCheck.textContent='检测中…';
- host.postMessage('ssh-check:'+sshPort.valueAsNumber+':'+password.value);
+ sshCheck.disabled=true;sshCheck.textContent='连接中…';
+ host.postMessage('ssh-connect:'+sshPort.valueAsNumber+':'+password.value);
 };
 host?.addEventListener('message',event=>{
  if(event.data.startsWith('password-value:')){
@@ -144,13 +206,29 @@ host?.addEventListener('message',event=>{
  if(event.data.startsWith('password-error:')){
   sshResult.classList.add('error');sshResult.textContent=event.data.slice('password-error:'.length);sshResult.hidden=false;return;
  }
- if(event.data.startsWith('ssh-result:')||event.data.startsWith('ssh-error:')){
-  sshCheck.disabled=false;sshCheck.textContent='连接检测';
-  sshResult.classList.toggle('error',event.data.startsWith('ssh-error:'));
-  sshResult.textContent=event.data.slice(event.data.indexOf(':')+1);sshResult.hidden=false;return;
+ if(event.data.startsWith('ssh-state:')){
+  const directionEnd=event.data.indexOf(':',10);
+  const direction=Number(event.data.slice(10,directionEnd));
+  if(direction!==orientation){endTouch();orientation=direction}
+  const result=event.data.slice(directionEnd+1),split=result.indexOf(':');
+  sshState=result.slice(0,split);
+  const connected=sshState==='ready'||sshState==='service-error'||sshState==='working';
+  sshCheck.disabled=false;
+  sshCheck.textContent=connected?'断开连接':sshState==='pending'?'取消连接':'连接手机';
+  installTouch.disabled=sshState!=='service-error';
+  checkTouch.disabled=sshState!=='ready' && sshState!=='service-error';
+  sshResult.classList.toggle('error',sshState==='error'||sshState==='service-error');
+  sshResult.textContent=sshState==='ready' && !orientation?'正在等待手机报告界面方向…':result.slice(split+1);
+  sshResult.hidden=!sshResult.textContent;
+  clearTimeout(sshPoll);
+  if(connected||sshState==='pending')sshPoll=setTimeout(()=>host.postMessage('ssh-state'),sshState==='ready'?200:600);
+  updateTouch();
+  return;
  }
  if(event.data==='control-on'||event.data==='control-off'){
-  $('#control').setAttribute('aria-checked',String(event.data==='control-on'));
+  controlEnabled=event.data==='control-on';
+  $('#control').setAttribute('aria-checked',String(controlEnabled));
+  updateTouch();
   $('#control').disabled=false;return;
  }
  if(event.data!=='pinned' && event.data!=='unpinned')return;
@@ -160,6 +238,7 @@ host?.addEventListener('message',event=>{
 });
 pin.onclick=()=>host?.postMessage('toggle-pin');
 host?.postMessage('pin-state');
+host?.postMessage('ssh-state');
 host?.postMessage('password-load');
 host?.postMessage('control-state');
 for(const handle of document.querySelectorAll('.resize-handle')){
@@ -256,6 +335,7 @@ document.onfullscreenchange=()=>{const label=document.fullscreenElement?'退出�
 for(const command of ['minimize','close'])$('#'+command).onclick=()=>window.chrome.webview.postMessage(command);
 function waiting(message,detail=''){
  rateLabel.hidden=true;canvas.hidden=true;$('.waiting').hidden=false;$('main').classList.remove('live');
+ endTouch();updateTouch();
  $('.waiting h1').textContent=message;$('.waiting p').textContent=detail||waitingHint;
 }
 async function play(id){
@@ -293,7 +373,10 @@ async function play(id){
   const frame=item.frame;
   try{
    const resized=canvas.width!==frame.displayWidth||canvas.height!==frame.displayHeight;
-   if(resized){canvas.width=frame.displayWidth;canvas.height=frame.displayHeight}
+   if(resized){
+    endTouch();
+    canvas.width=frame.displayWidth;canvas.height=frame.displayHeight;
+   }
    ctx.drawImage(frame,0,0,canvas.width,canvas.height);
    localAges.push(performance.now()-item.arrival);
    if(Number.isFinite(item.sourceAge))sourceAges.push(item.sourceAge);
@@ -304,8 +387,9 @@ async function play(id){
    }
    if(first){
     first=false;canvas.hidden=false;$('.waiting').hidden=true;$('main').classList.add('live');
+    updateTouch();
     fetch(base+'/first-frame').catch(()=>{});
-   }
+   }else if(resized)updateTouch();
   }finally{frame.close()}
  }
  const decoder=new VideoDecoder({output(frame){

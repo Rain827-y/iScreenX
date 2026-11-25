@@ -20,6 +20,7 @@ internal sealed class Viewer : IDisposable
     bool needsConfig, connectedOnce;
     string session = "", device = "";
     IPAddress peer;
+    readonly PhoneConnection phone = new PhoneConnection();
     volatile bool stopped;
     internal volatile int AudioVolume=75;
     internal volatile DisplayMode DesiredDisplay=DisplayMode.Load();
@@ -29,29 +30,23 @@ internal sealed class Viewer : IDisposable
         lastAudioTick=Environment.TickCount;
     }
 
-    internal Viewer(string name, Action<string> report, Action close,Func<bool,bool> controlMode)
+    internal Viewer(string name, Action<string> report, Action close)
     {
         receiverName = name; note = report;
         server.Start(8);
         try {
             string url = "http://127.0.0.1:" + ((IPEndPoint)server.LocalEndpoint).Port + route;
             window = new MirrorWindow(new Uri(url));
-            window.ControlMode=controlMode;
-            window.CheckSsh=CheckSsh;
+            window.ConnectPhone=delegate(int port,string password){
+                lock(gate) phone.Connect(peer,port,password);
+            };
+            window.Phone=phone;
             window.VolumeChanged += delegate(int value){AudioVolume=value;};
             window.DisplayChanged += delegate(DisplayMode mode){DesiredDisplay=mode;mode.Save();};
             window.FormClosed += delegate { if (!stopped) close(); };
             window.Show();
             ThreadPool.QueueUserWorkItem(delegate { Listen(); });
         } catch { server.Stop(); throw; }
-    }
-    string CheckSsh(int port,string password)
-    {
-        string id;
-        IPAddress target;
-        lock (gate) { id=session; target=peer; }
-        string result=SshConnectionCheck.Run(target,port,password);
-        lock (gate) return session==id?result:"投屏设备已断开或切换，请重新检测。";
     }
     internal string Begin(string name,IPAddress address)
     {
@@ -68,6 +63,7 @@ internal sealed class Viewer : IDisposable
     {
         lock (gate) {
             if (session != id) return;
+            phone.Disconnect();
             session = ""; device = ""; peer=null; audioDelay=75;
             if (player != null) player.Close();
             player = null; Monitor.PulseAll(gate);

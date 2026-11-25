@@ -4,6 +4,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+$iTouchPackage = '3rdparty/iTouch/dist/com.itouch.remote_1.1.1_iphoneos-arm.deb'
+if (!(Test-Path -LiteralPath $iTouchPackage -PathType Leaf)) {
+    throw 'Initialize iTouch with git submodule update --init'
+}
 New-Item -ItemType Directory -Path $OutputDirectory,tmp -Force | Out-Null
 foreach ($script in 'build-native.ps1','build-audio.ps1') {
     & "$PSScriptRoot/$script" -Zig $Zig -OutputDirectory $OutputDirectory
@@ -22,5 +26,6 @@ Copy-Item $assemblies $OutputDirectory -Force
 Copy-Item "$sdk/runtimes/win-x64/native/WebView2Loader.dll" $OutputDirectory -Force
 Copy-Item "$sdk/LICENSE.txt" "$OutputDirectory/WebView2-LICENSE.txt" -Force
 Copy-Item "$sdk/NOTICE.txt" "$OutputDirectory/WebView2-NOTICE.txt" -Force
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /platform:x64 /target:winexe /optimize+ "/out:$OutputDirectory/iScreenX.exe" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll "/reference:$($assemblies -join ',')" /resource:src\view.html,view.html src\*.cs src\RemoteControl\*.cs
+Copy-Item '3rdparty/iTouch/LICENSE' "$OutputDirectory/iTouch-LICENSE.txt" -Force
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /platform:x64 /target:winexe /optimize+ "/out:$OutputDirectory/iScreenX.exe" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll "/reference:$($assemblies -join ',')" /resource:src\view.html,view.html "/resource:$iTouchPackage,itouch.deb" src\*.cs src\RemoteControl\*.cs
 exit $LASTEXITCODE

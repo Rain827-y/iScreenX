@@ -4,3 +4,6 @@
 [submodule "3rdparty/UxPlay"]
 	path = 3rdparty/UxPlay
 	url = https://github.com/FDH2/UxPlay.git
+[submodule "3rdparty/iTouch"]
+	path = 3rdparty/iTouch
+	url = git@github.com:Rain827-y/iTouch.git

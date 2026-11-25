@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -18,10 +18,8 @@ class Receiver : Form
     readonly ListBox log = new ListBox { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly List<IntPtr> registrations = new List<IntPtr>();
     readonly Semaphore clients = new Semaphore(8, 8);
-    TcpListener listener, ipv6Listener;
-    IPAddress ipv6Address;
+    TcpListener listener;
     uint lanIndex;
-    bool ipv4Only;
     string device, serviceName;
     byte[] identity, publicKey;
     const string Features = "0x5A7FFFF7";
@@ -67,7 +65,7 @@ class Receiver : Form
         device = BitConverter.ToString(receiverId).Replace("-", ":");
         serviceName = "iScreenX-" + Environment.MachineName;
         UpdateNetwork();
-        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); },SetControlMode);
+        viewer = new Viewer(serviceName, Note, delegate { if (!closing) BeginInvoke((Action)Close); });
         networkRefresh.Tick+=delegate {
             try { UpdateNetwork(); }
             catch(Exception ex){ if(lastNetworkError!=ex.Message)Note(ex.Message); lastNetworkError=ex.Message; }
@@ -105,73 +103,41 @@ class Receiver : Form
         IPAddress address;
         var chosen=SelectNetwork(out address);
         uint index=(uint)chosen.GetIPProperties().GetIPv4Properties().Index;
-        IPAddress nextV6=null;
-        foreach(var ip in chosen.GetIPProperties().UnicastAddresses){
-            if(ip.Address.IsIPv6LinkLocal){nextV6=ip.Address;break;}
-        }
-        bool sameV4=listener!=null && address.Equals(((IPEndPoint)listener.LocalEndpoint).Address);
-        if(sameV4 && index==lanIndex && Object.Equals(nextV6,ipv6Address) && registrations.Count>0 && lastNetworkError==null)return;
+        bool sameAddress=listener!=null && address.Equals(((IPEndPoint)listener.LocalEndpoint).Address);
+        if(sameAddress && index==lanIndex && registrations.Count>0 && lastNetworkError==null)return;
         TcpListener next=listener;
-        if(!sameV4){
+        if(!sameAddress){
             next=new TcpListener(address,0);
             next.Start(8);
         }
         ClearAdvertisement();
-        if(ipv6Listener!=null){ipv6Listener.Stop();ipv6Listener=null;}
-        if(!sameV4 && listener!=null)listener.Stop();
-        listener=next;lanIndex=index;ipv6Address=nextV6;
-        if(!sameV4)ThreadPool.QueueUserWorkItem(delegate{Accept(next);});
-        if(!ipv4Only)StartIPv6();
-        Advertise(ipv4Only);
+        if(!sameAddress && listener!=null)listener.Stop();
+        listener=next;lanIndex=index;
+        if(!sameAddress)ThreadPool.QueueUserWorkItem(delegate{Accept(next);});
+        Advertise();
         lastNetworkError=null;
-    }
-    void StartIPv6(){
-        if(ipv6Address==null || ipv6Listener!=null)return;
-        var next=new TcpListener(ipv6Address,((IPEndPoint)listener.LocalEndpoint).Port);
-        next.Start(8);ipv6Listener=next;
-        ThreadPool.QueueUserWorkItem(delegate{Accept(next);});
     }
     void ClearAdvertisement(){
         for(int i=registrations.Count-1;i>=0;i--)DNSServiceRefDeallocate(registrations[i]);
         registrations.Clear();
     }
-    void Advertise(bool onlyV4){
+    void Advertise(){
         var endpoint=(IPEndPoint)listener.LocalEndpoint;
         int port=endpoint.Port;
         string pk="pk="+BitConverter.ToString(publicKey).Replace("-","").ToLowerInvariant();
-        string host=null;
-        uint index=lanIndex;
-        if(onlyV4){
-            host="iscreenx-"+device.Replace(":","").ToLowerInvariant()+"-v4.local.";
-            IntPtr service,record;
-            int err=DNSServiceCreateConnection(out service);
-            if(err!=0)throw new IOException("Bonjour IPv4 连接失败 ("+err+")");
-            registrations.Add(service);
-            err=DNSServiceRegisterRecord(service,out record,0x20,index,host,1,1,4,endpoint.Address.GetAddressBytes(),120,AddressReply,IntPtr.Zero);
-            if(err!=0)throw new IOException("Bonjour IPv4 地址注册失败 ("+err+")");
-        }
-        Register(index,host, serviceName, "_airplay._tcp", port,
+        string host="iscreenx-"+device.Replace(":","").ToLowerInvariant()+"-v4.local.";
+        IntPtr service,record;
+        int err=DNSServiceCreateConnection(out service);
+        if(err!=0)throw new IOException("Bonjour IPv4 连接失败 ("+err+")");
+        registrations.Add(service);
+        err=DNSServiceRegisterRecord(service,out record,0x20,lanIndex,host,1,1,4,endpoint.Address.GetAddressBytes(),120,AddressReply,IntPtr.Zero);
+        if(err!=0)throw new IOException("Bonjour IPv4 地址注册失败 ("+err+")");
+        Register(lanIndex,host, serviceName, "_airplay._tcp", port,
             "deviceid=" + device, "features=" + Features, "flags=0x4", "model=" + Model, "srcvers=" + Version, "vv=2", pk);
-        Register(index,host, device.Replace(":", "") + "@" + serviceName, "_raop._tcp", port,
+        Register(lanIndex,host, device.Replace(":", "") + "@" + serviceName, "_raop._tcp", port,
             "txtvers=1", "ch=2", "cn=0,1,2,3", "et=0,3,5", "md=0,1,2", "pw=false", "sr=44100", "ss=16",
             "tp=UDP", "vn=65537", "vs=" + Version, "am=" + Model, "ft=" + Features, "sf=0x4", "vv=2", pk);
         status.Text=serviceName+"    "+endpoint;
-    }
-    bool SetControlMode(bool enable){
-        if(enable==ipv4Only)return ipv4Only;
-        ClearAdvertisement();
-        try{
-            if(!enable)StartIPv6();
-            Advertise(enable);
-            if(enable && ipv6Listener!=null){ipv6Listener.Stop();ipv6Listener=null;}
-            ipv4Only=enable;
-            Note(enable?"新连接仅监听 IPv4":"已恢复普通监听模式");
-        }catch(Exception ex){
-            Note("监听模式切换失败："+ex.Message);
-            if(ipv4Only && ipv6Listener!=null){ipv6Listener.Stop();ipv6Listener=null;}
-            ClearAdvertisement();Advertise(ipv4Only);
-        }
-        return ipv4Only;
     }
     void Shutdown()
     {
@@ -179,7 +145,6 @@ class Receiver : Form
         networkRefresh.Dispose();
         if (viewer != null) viewer.Dispose();
         if (listener != null) listener.Stop();
-        if (ipv6Listener != null) ipv6Listener.Stop();
         ClearAdvertisement();
     }
     void Note(string s)
@@ -327,7 +292,7 @@ class Receiver : Form
         FormClosing += delegate { Shutdown(); };
     }
     [STAThread] static void Main(string[] args) {
-        if (SshConnectionCheck.AnswerPasswordPrompt(args)) return;
+        if (PhoneConnection.AnswerPasswordPrompt(args)) return;
         Application.EnableVisualStyles(); Application.Run(new Receiver());
     }
 }

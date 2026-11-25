@@ -1,6 +1,6 @@
 # iScreenX
 
-iScreenX 是 Windows x64 上的 AirPlay 镜像接收端，可以在同一局域网内显示 iPhone 画面并播放手机声音。手机通过系统控制中心发起投屏，无需安装 App。已在 iPhone 6 Plus（iOS 10.3.3）上验证。
+iScreenX 是 Windows x64 上的 AirPlay 镜像接收端，通过局域网 IPv4 接收 iPhone 画面和声音。手机通过系统控制中心发起投屏，无需安装 App。已在 iPhone 6 Plus（iOS 10.3.3）上验证。
 
 ## 开始投屏
 
@@ -10,7 +10,13 @@ iScreenX 是 Windows x64 上的 AirPlay 镜像接收端，可以在同一局域�
 
 投屏设置支持中等或高清画质、30 或 60 fps。修改后重新连接镜像即可按新参数协商。窗口支持等比缩放、全屏、置顶，也可以在左上角显示实际分辨率和帧率。
 
-屏幕录制目前处于界面预览阶段。越狱设备已接入 SSH 连接，点击和滑动反控仍在开发中。
+屏幕录制目前处于界面预览阶段。
+
+## 反控越狱设备
+
+1. 连上投屏后，在设置里填入手机的 SSH 端口和 root 密码，打开「反控手机」。
+2. 点「连接手机」。如果 iTouch 服务未就绪，点「安装反控插件」，再用「反控检测」查看状态。
+3. 连接就绪后，可在投屏画面上点击、按住和拖动。iTouch 1.1.1 会读取手机当前的界面方向，iScreenX 据此自动换算坐标。
 
 ## 从源码构建
 
@@ -31,5 +37,6 @@ git submodule update --init
 | --- | --- |
 | [3rdparty/UxPlay](3rdparty/UxPlay) | `lib/playfair`，构建为 `iscreenx-fp.dll` |
 | [3rdparty/fdk-aac](3rdparty/fdk-aac) | AAC 解码器及其依赖，构建为 `iscreenx-aac.dll` |
+| [3rdparty/iTouch](3rdparty/iTouch) | 越狱设备的触摸服务，安装包随主程序提供 |
 
-主仓库通过 Git 子模块固定这两个组件的版本。构建脚本会将对应的许可证和声明复制到输出目录。
+主仓库通过 Git 子模块固定组件版本。初始化 iTouch 子模块时需要有该 GitHub 仓库的 SSH 访问权限。构建脚本会将第三方组件的许可证和声明复制到输出目录。

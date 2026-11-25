@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Drawing;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.IO;
 using System.Windows.Forms;
@@ -10,9 +11,8 @@ internal sealed class MirrorWindow : Form
 {
     readonly WebView2 browser = new WebView2();
     internal event Action<int> VolumeChanged;
-    internal Func<bool,bool> ControlMode;
-    internal Func<int,string,string> CheckSsh;
-    bool checkingSsh;
+    internal Action<int,string> ConnectPhone;
+    internal PhoneConnection Phone;
     bool controlEnabled;
     internal event Action<DisplayMode> DisplayChanged;
     readonly Uri page;
@@ -59,16 +59,6 @@ internal sealed class MirrorWindow : Form
         Disposed+=delegate{resizeDrag.Dispose();};
     }
 
-    async void CheckSshAsync(CoreWebView2 core,int port,string password)
-    {
-        checkingSsh=true;
-        string result;
-        try { result=await System.Threading.Tasks.Task.Run(()=>CheckSsh(port,password)); }
-        catch (Exception) { result="SSH 检测失败，请重试。"; }
-        finally { checkingSsh=false; }
-        if(!IsDisposed && !Disposing)core.PostWebMessageAsString((result==SshConnectionCheck.LoginSuccess?"ssh-result:":"ssh-error:")+result);
-    }
-
     protected override async void OnShown(EventArgs e)
     {
         base.OnShown(e);
@@ -96,11 +86,23 @@ internal sealed class MirrorWindow : Form
                     }
                     return;
                 }
-                if(message.StartsWith("ssh-check:",StringComparison.Ordinal)){
+                if(message.StartsWith("ssh-connect:",StringComparison.Ordinal)){
                     string[] fields=message.Split(new[]{':'},3);
                     int port;
-                    if(fields.Length==3 && Int32.TryParse(fields[1],out port) && !checkingSsh)
-                        CheckSshAsync(core,port,fields[2]);
+                    if(fields.Length==3 && Int32.TryParse(fields[1],out port))ConnectPhone(port,fields[2]);
+                    core.PostWebMessageAsString("ssh-state:"+Phone.Status);
+                    return;
+                }
+                if(message.StartsWith("touch:",StringComparison.Ordinal)){
+                    if(!controlEnabled)return;
+                    var fields=message.Substring(6).Split(' ');
+                    double x,y;
+                    int direction;
+                    if(fields.Length==1 && fields[0]=="up")Phone.Touch("up",0,0,0);
+                    else if(fields.Length==4 && Int32.TryParse(fields[1],out direction)
+                        && Double.TryParse(fields[2],NumberStyles.Float,CultureInfo.InvariantCulture,out x)
+                        && Double.TryParse(fields[3],NumberStyles.Float,CultureInfo.InvariantCulture,out y))
+                        Phone.Touch(fields[0],direction,x,y);
                     return;
                 }
                 if(message.StartsWith("geometry:",StringComparison.Ordinal)){
@@ -132,8 +134,18 @@ internal sealed class MirrorWindow : Form
                     return;
                 }
                 switch (message) {
+                    case "itouch-install": case "itouch-check":
+                        Phone.ServiceAction(message=="itouch-install");
+                        goto case "ssh-state";
+                    case "ssh-disconnect":
+                        Phone.Disconnect();
+                        goto case "ssh-state";
+                    case "ssh-state":
+                        core.PostWebMessageAsString("ssh-state:"+Phone.Status);
+                        break;
                     case "control-on": case "control-off":
-                        controlEnabled=ControlMode(message=="control-on");
+                        controlEnabled=message=="control-on";
+                        if(!controlEnabled)Phone.Disconnect();
                         goto case "control-state";
                     case "control-state":
                         core.PostWebMessageAsString(controlEnabled?"control-on":"control-off");
